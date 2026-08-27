@@ -32,21 +32,26 @@ public class WebSocketServer : IDisposable
     public async Task StartAsync(string _ip)
     {
         _listener = new HttpListener();
-        // Bind to all interfaces — required for hotspot clients on a different subnet
-        _listener.Prefixes.Add($"http://+:{WsPort}/ws/");
+        // Always bind to all interfaces (0.0.0.0) so hotspot clients,
+        // Wi-Fi clients, and localhost can all connect.
+        // Requires URL ACL reservation OR running as Administrator.
         try
         {
+            _listener.Prefixes.Add($"http://+:{WsPort}/ws/");
             _listener.Start();
+            LogService.Instance.Info("Server", $"Listening on all interfaces port {WsPort}");
         }
         catch
         {
-            // Fallback: bind only to localhost (no admin rights for +)
+            // Fallback: bind only to localhost if no admin rights
             _listener = new HttpListener();
             _listener.Prefixes.Add($"http://localhost:{WsPort}/ws/");
             _listener.Prefixes.Add($"http://127.0.0.1:{WsPort}/ws/");
             _listener.Start();
+            LogService.Instance.Warn("Server",
+                $"Could not bind to all interfaces — listening on localhost:{WsPort} only. " +
+                "Run as Administrator for full network access.");
         }
-
         _ = Task.Run(AcceptLoop, _cts.Token);
         await Task.CompletedTask;
     }

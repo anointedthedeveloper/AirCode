@@ -146,16 +146,31 @@ public class MainViewModel : INotifyPropertyChanged
                 return (false, detail);
             }
 
-            if (result != HotspotResult.Success)
+            if (result == HotspotResult.PermissionDenied)
+            {
+                // Not fatal — server still starts on existing network
                 log.Warn("Host", detail);
+            }
+            else if (result != HotspotResult.Success)
+            {
+                log.Warn("Host", detail);
+            }
         }
 
-        // Register URL reservation (best-effort, needs elevation)
+        // Register URL reservation (best-effort, works because we're admin now)
         await TryReserveUrlAsync();
 
+        // Always use the real network IP for display/discovery
+        // Server binds to 0.0.0.0 but clients need the actual IP
         var ip = HotspotService.GetBestLocalIp();
-        HostIp = ip;
-        log.Info("Host", $"Server will bind to {ip}:{WebSocketServer.WsPort}");
+        if (ip == "0.0.0.0")
+        {
+            // Still no usable adapter — try once more after a delay
+            await Task.Delay(1000);
+            ip = HotspotService.GetBestLocalIp();
+        }
+        HostIp = ip == "0.0.0.0" ? "unavailable" : ip;
+        log.Info("Host", $"Advertised IP: {HostIp}");
 
         _server = new WebSocketServer();
         _server.ClientJoined    += OnClientJoined;
@@ -164,8 +179,8 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            await _server.StartAsync(ip);
-            log.Success("Host", $"WebSocket server started on {ip}:{WebSocketServer.WsPort}");
+            await _server.StartAsync(HostIp ?? "0.0.0.0");
+            log.Success("Host", $"WebSocket server started (binding 0.0.0.0:{WebSocketServer.WsPort}, advertised: {HostIp})");
         }
         catch (Exception ex)
         {

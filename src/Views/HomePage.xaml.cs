@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using AirCode.Services;
 using AirCode.ViewModels;
 
 namespace AirCode.Views;
@@ -39,6 +40,26 @@ public partial class HomePage : UserControl
     private async void StartHost_Click(object s, RoutedEventArgs e)
     {
         if (_vm == null) return;
+
+        // Warn if not admin
+        if (!AirCode.Services.HotspotService.IsRunningAsAdmin())
+        {
+            var r = MessageBox.Show(
+                "Hotspot creation requires Administrator privileges.\n\n" +
+                "Click YES to restart AirCode as Administrator (recommended).\n" +
+                "Click NO to continue without hotspot — clients must join your existing Wi-Fi.",
+                "Administrator Required",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (r == MessageBoxResult.Yes)
+            {
+                AirCode.Services.HotspotService.RestartAsAdmin();
+                return;
+            }
+            // Continue without admin — server still starts on existing network
+        }
+
         var dlg = new HostSetupDialog { Owner = _win };
         if (dlg.ShowDialog() != true) return;
 
@@ -51,7 +72,10 @@ public partial class HomePage : UserControl
         if (!ok)
             MessageBox.Show(msg, "AirCode", MessageBoxButton.OK, MessageBoxImage.Warning);
         else
-            NotifyStatus(msg);
+        {
+            // Show the IP so user knows what to tell clients
+            NotificationService.Instance.Show("Network started", msg.Split('\n')[0], NotificationKind.Success);
+        }
     }
 
     private async void Connect_Click(object s, RoutedEventArgs e)
