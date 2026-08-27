@@ -125,52 +125,27 @@ public class MainViewModel : INotifyPropertyChanged
 
     // ── Host Mode ─────────────────────────────────────────────────────────────
 
-    public async Task<(bool success, string message)> StartHostAsync(string ssid, string password)
+    public async Task<(bool success, string message)> StartHostAsync()
     {
         var log = LogService.Instance;
         log.Info("Host", "StartHostAsync called");
         ConnectionState = ConnectionState.Connecting;
 
-        string hotspotDetail = "";
-
-        // Attempt hotspot (non-fatal)
-        if (!string.IsNullOrEmpty(ssid))
-        {
-            var (result, detail) = await _hotspot.StartHotspotAsync(ssid, password);
-            hotspotDetail = detail;
-
-            if (result == HotspotResult.NoAdapter)
-            {
-                log.Error("Host", detail);
-                ConnectionState = ConnectionState.Disconnected;
-                return (false, detail);
-            }
-
-            if (result == HotspotResult.PermissionDenied)
-            {
-                // Not fatal — server still starts on existing network
-                log.Warn("Host", detail);
-            }
-            else if (result != HotspotResult.Success)
-            {
-                log.Warn("Host", detail);
-            }
-        }
-
-        // Register URL reservation (best-effort, works because we're admin now)
-        await TryReserveUrlAsync();
-
-        // Always use the real network IP for display/discovery
-        // Server binds to 0.0.0.0 but clients need the actual IP
+        // Get this machine's IP on the current network (no hotspot creation)
         var ip = HotspotService.GetBestLocalIp();
-        if (ip == "0.0.0.0")
+
+        if (string.IsNullOrEmpty(ip))
         {
-            // Still no usable adapter — try once more after a delay
-            await Task.Delay(1000);
-            ip = HotspotService.GetBestLocalIp();
+            log.Error("Host", "No network adapter available.");
+            ConnectionState = ConnectionState.Disconnected;
+            return (false, "No network detected.\n\nConnect to a Wi-Fi network first, then start hosting.");
         }
-        HostIp = ip == "0.0.0.0" ? "unavailable" : ip;
-        log.Info("Host", $"Advertised IP: {HostIp}");
+
+        HostIp = ip;
+        log.Info("Host", $"Host IP: {ip}");
+
+        // Register URL ACL (best-effort — works when running as admin)
+        await TryReserveUrlAsync();
 
         _server = new WebSocketServer();
         _server.ClientJoined    += OnClientJoined;
@@ -179,12 +154,12 @@ public class MainViewModel : INotifyPropertyChanged
 
         try
         {
-            await _server.StartAsync(HostIp ?? "0.0.0.0");
-            log.Success("Host", $"WebSocket server started (binding 0.0.0.0:{WebSocketServer.WsPort}, advertised: {HostIp})");
+            await _server.StartAsync(ip);
+            log.Success("Host", $"Server listening on 0.0.0.0:{WebSocketServer.WsPort}  (advertised: {ip})");
         }
         catch (Exception ex)
         {
-            log.Error("Host", $"Server failed to start: {ex.Message}");
+            log.Error("Host", $"Server failed: {ex.Message}");
             ConnectionState = ConnectionState.Disconnected;
             return (false, $"Could not start server: {ex.Message}");
         }
@@ -202,19 +177,14 @@ public class MainViewModel : INotifyPropertyChanged
         App.Current.Dispatcher.Invoke(() => Members.Add(selfMember));
 
         ConnectionState = ConnectionState.ConnectedAsHost;
-        AddActivity($"Network started · {ip}");
+        AddActivity($"Hosting on {ip}");
         OnPropertyChanged(nameof(MyId));
 
-        var msg = string.IsNullOrEmpty(hotspotDetail)
-            ? $"AirCode running on {ip}"
-            : $"AirCode running on {ip}\n{hotspotDetail}";
-
-        return (true, msg);
+        return (true, $"AirCode running on {ip}\nClients auto-discover via UDP — no IP entry needed.");
     }
 
     private static async Task TryReserveUrlAsync()
     {
-        var log = LogService.Instance;
         try
         {
             var psi = new System.Diagnostics.ProcessStartInfo(
@@ -227,11 +197,11 @@ public class MainViewModel : INotifyPropertyChanged
             };
             using var p = System.Diagnostics.Process.Start(psi)!;
             await p.WaitForExitAsync();
-            log.Debug("Host", $"URL ACL reservation exit code: {p.ExitCode}");
+            LogService.Instance.Debug("Host", $"URL ACL reservation exit: {p.ExitCode}");
         }
         catch (Exception ex)
         {
-            log.Warn("Host", $"URL ACL reservation failed (non-fatal): {ex.Message}");
+            LogService.Instance.Warn("Host", $"URL ACL reservation failed (non-fatal): {ex.Message}");
         }
     }
 
@@ -298,7 +268,6 @@ public class MainViewModel : INotifyPropertyChanged
         _discovery.Stop();
         if (_server != null) { _server.Stop(); _server.Dispose(); _server = null; }
         if (_client != null) { await _client.DisconnectAsync(); _client.Dispose(); _client = null; }
-        if (_hotspot.IsHotspotActive) await _hotspot.StopAsync();
         App.Current.Dispatcher.Invoke(() => Members.Clear());
         ConnectionState = ConnectionState.Disconnected;
         LogService.Instance.Info("Host", "Disconnected.");

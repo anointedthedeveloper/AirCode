@@ -1,57 +1,47 @@
 using System.Windows;
+using AirCode.Services;
 
 namespace AirCode.Views;
 
 public partial class HostSetupDialog : Window
 {
-    public string NetworkName { get; private set; } = "AirCode-Classroom";
-    public string Password { get; private set; } = "aircode2026";
-
-    private bool _showingPassword;
+    public string DetectedIp { get; private set; } = "";
 
     public HostSetupDialog()
     {
         InitializeComponent();
-        NameBox.Text = "AirCode-Classroom";
-        PassBox.Password = "aircode2026";
-        PassText.Text = "aircode2026";
+        Loaded += (_, _) => DetectNetwork();
     }
 
-    private void TogglePass_Click(object s, RoutedEventArgs e)
+    private void DetectNetwork()
     {
-        _showingPassword = !_showingPassword;
+        var adapters = HotspotService.GetAllAdapters();
+        var best     = HotspotService.GetBestLocalIp();
 
-        if (_showingPassword)
+        DetectedIp = best;
+
+        if (string.IsNullOrEmpty(best))
         {
-            PassText.Text = PassBox.Password;
-            PassBox.Visibility = Visibility.Collapsed;
-            PassText.Visibility = Visibility.Visible;
-            TogglePassIcon.Text = "🙈";
+            IpText.Text          = "Not connected";
+            AdapterText.Text     = "Connect to a Wi-Fi network and reopen this dialog.";
+            NoNetworkText.Visibility = Visibility.Visible;
         }
         else
         {
-            PassBox.Password = PassText.Text;
-            PassText.Visibility = Visibility.Collapsed;
-            PassBox.Visibility = Visibility.Visible;
-            TogglePassIcon.Text = "👁";
+            IpText.Text = best;
+            var adapter = adapters.FirstOrDefault();
+            AdapterText.Text = adapter.name ?? "Network adapter detected";
+            NoNetworkText.Visibility = Visibility.Collapsed;
         }
     }
 
     private void Start_Click(object s, RoutedEventArgs e)
     {
-        NetworkName = NameBox.Text.Trim();
-        Password = _showingPassword ? PassText.Text : PassBox.Password;
-
-        if (string.IsNullOrEmpty(NetworkName))
+        if (string.IsNullOrEmpty(DetectedIp))
         {
-            MessageBox.Show("Please enter a network name.", "AirCode",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-        if (Password.Length < 8)
-        {
-            MessageBox.Show("Password must be at least 8 characters.", "AirCode",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(
+                "No network detected.\n\nConnect this PC to a Wi-Fi network (phone hotspot, Windows hotspot, or router) then try again.",
+                "No Network", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
         DialogResult = true;
