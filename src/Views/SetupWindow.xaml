@@ -1,0 +1,46 @@
+<Window x:Class="AirCode.Views.SetupWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Welcome to AirCode" Height="380" Width="440"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}">
+    <Grid Margin="40">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Logo + Title -->
+        <StackPanel Grid.Row="0" HorizontalAlignment="Center" Margin="0,0,0,28">
+            <Image Source="/logo.png" Width="56" Height="56" HorizontalAlignment="Center"
+                   Margin="0,0,0,12" RenderOptions.BitmapScalingMode="HighQuality"/>
+            <TextBlock Text="Welcome to AirCode" FontSize="22" FontWeight="Bold"
+                       Foreground="{StaticResource TextPrimaryBrush}" HorizontalAlignment="Center"/>
+            <TextBlock Text="Share code. Share files. Stay local."
+                       FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"
+                       HorizontalAlignment="Center" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Name Input -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,8">
+            <TextBlock Text="YOUR DISPLAY NAME" Style="{StaticResource Label}" Margin="0,0,0,6"/>
+            <TextBox x:Name="NameBox" Style="{StaticResource InputBox}" FontSize="15"
+                     Padding="12,10"/>
+            <TextBlock Text="Visible to other AirCode users on this network."
+                       FontSize="11" Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0"/>
+        </StackPanel>
+
+        <Grid Grid.Row="2"/>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Skip" Style="{StaticResource GhostButton}"
+                    Margin="0,0,8,0" Click="Skip_Click"/>
+            <Button Content="Continue →" Style="{StaticResource PrimaryButton}"
+                    Padding="20,10" Click="Continue_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

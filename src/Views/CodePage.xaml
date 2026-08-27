@@ -1,0 +1,69 @@
+<UserControl x:Class="AirCode.Views.CodePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <Grid Margin="32">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="Share Code" Style="{StaticResource PageTitle}"/>
+            <TextBlock Text="Share code snippets with anyone on the network." FontSize="13"
+                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Controls row -->
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Margin="0,0,16,0">
+                <TextBlock Text="LANGUAGE" Style="{StaticResource Label}"/>
+                <ComboBox x:Name="LangCombo" Width="140" Height="36" FontSize="13"
+                          Background="{StaticResource InputBgBrush}"
+                          Foreground="{StaticResource TextPrimaryBrush}"/>
+            </StackPanel>
+
+            <StackPanel Grid.Column="1">
+                <TextBlock Text="SEND TO" Style="{StaticResource Label}"/>
+                <ComboBox x:Name="RecipientCombo" Width="160" Height="36" FontSize="13"
+                          Background="{StaticResource InputBgBrush}"
+                          Foreground="{StaticResource TextPrimaryBrush}"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Code editor -->
+        <Border Grid.Row="2" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                CornerRadius="8" Margin="0,0,0,12" Background="{StaticResource InputBgBrush}">
+            <TextBox x:Name="CodeBox"
+                     Background="Transparent"
+                     Foreground="{StaticResource TextPrimaryBrush}"
+                     BorderThickness="0"
+                     FontFamily="Consolas, Courier New"
+                     FontSize="13"
+                     AcceptsReturn="True"
+                     AcceptsTab="True"
+                     HorizontalScrollBarVisibility="Auto"
+                     VerticalScrollBarVisibility="Auto"
+                     Padding="16"
+                     TextWrapping="NoWrap"
+                     CaretBrush="{StaticResource PrimaryBrush}"/>
+        </Border>
+
+        <!-- Action buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Clear" Style="{StaticResource GhostButton}" Margin="0,0,8,0" Click="Clear_Click"/>
+            <Button Content="Share Code →" Style="{StaticResource PrimaryButton}"
+                    Padding="24,10" Click="Share_Click"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

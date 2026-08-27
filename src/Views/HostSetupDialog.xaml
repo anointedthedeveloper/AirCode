@@ -1,0 +1,48 @@
+<Window x:Class="AirCode.Views.HostSetupDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Create AirCode Network" Height="320" Width="420"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{StaticResource BgBrush}">
+    <Grid Margin="28">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="Create AirCode Network" FontSize="18" FontWeight="Bold"
+                       Foreground="{StaticResource TextPrimaryBrush}"/>
+            <TextBlock Text="Other computers will connect to this network." FontSize="12"
+                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <TextBlock Text="NETWORK NAME" Style="{StaticResource Label}"/>
+            <TextBox x:Name="NameBox" Style="{StaticResource InputBox}"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="PASSWORD" Style="{StaticResource Label}"/>
+            <PasswordBox x:Name="PassBox" Padding="10,8" FontSize="13"
+                         Background="{StaticResource InputBgBrush}"
+                         Foreground="{StaticResource TextPrimaryBrush}"/>
+            <TextBlock Text="Min 8 characters" FontSize="11"
+                       Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="3" TextWrapping="Wrap" FontSize="11"
+                   Foreground="{StaticResource TextMutedBrush}"
+                   Text="Note: Wi-Fi hotspot creation requires administrator privileges and a compatible adapter. AirCode will start the server on your current network if hotspot creation is unavailable."/>
+
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Cancel" Style="{StaticResource GhostButton}"
+                    Margin="0,0,8,0" Click="Cancel_Click"/>
+            <Button Content="Start Network" Style="{StaticResource PrimaryButton}"
+                    Padding="20,8" Click="Start_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

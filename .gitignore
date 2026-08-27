@@ -1,0 +1,43 @@
+# Build output
+src/bin/
+src/obj/
+dist/
+
+# Visual Studio / Rider
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+.idea/
+
+# NuGet
+*.nupkg
+*.snupkg
+*.nuget/
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# .NET
+*.dll
+*.exe
+!dist/*.exe
+*.pdb
+*.mdb
+*.cache
+*.log
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+$RECYCLE.BIN/
+
+# AirCode local data (user-specific, not source)
+*.db
+*.db-shm
+*.db-wal

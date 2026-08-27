@@ -1,0 +1,133 @@
+<UserControl x:Class="AirCode.Views.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgBrush}">
+    <ScrollViewer Style="{StaticResource MinimalScroll}">
+        <StackPanel Margin="32" MaxWidth="600">
+
+            <TextBlock Text="Settings" Style="{StaticResource PageTitle}" Margin="0,0,0,24"/>
+
+            <!-- Profile -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="PROFILE" Style="{StaticResource Label}" Margin="0,0,0,12"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Display Name" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <TextBox x:Name="NameBox" Style="{StaticResource InputBox}" Width="280"
+                                     HorizontalAlignment="Left"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Update Name" Style="{StaticResource PrimaryButton}"
+                                VerticalAlignment="Bottom" Click="UpdateName_Click"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Appearance -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="APPEARANCE" Style="{StaticResource Label}" Margin="0,0,0,12"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="LightBtn" Content="Light" GroupName="Theme"
+                                     FontSize="13" Margin="0,0,20,0"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     Checked="Theme_Changed"/>
+                        <RadioButton x:Name="DarkBtn" Content="Dark" GroupName="Theme"
+                                     FontSize="13"
+                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                     Checked="Theme_Changed"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Downloads -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="DOWNLOADS" Style="{StaticResource Label}" Margin="0,0,0,12"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Download Folder" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                            <TextBox x:Name="FolderBox" Style="{StaticResource InputBox}"
+                                     FontFamily="Consolas" FontSize="12" IsReadOnly="True"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Browse…" Style="{StaticResource SecondaryButton}"
+                                VerticalAlignment="Bottom" Margin="8,0,0,0" Click="BrowseFolder_Click"/>
+                    </Grid>
+                    <Button Content="Open Folder" Style="{StaticResource GhostButton}"
+                            HorizontalAlignment="Left" Margin="0,8,0,0" Padding="0,4" Click="OpenFolder_Click"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Notifications -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="NOTIFICATIONS" Style="{StaticResource Label}" Margin="0,0,0,12"/>
+                    <CheckBox x:Name="NotifCheck" Content="Enable desktop notifications"
+                              FontSize="13" Foreground="{StaticResource TextPrimaryBrush}"
+                              Checked="Notif_Changed" Unchecked="Notif_Changed"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Network -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="NETWORK" Style="{StaticResource Label}" Margin="0,0,0,12"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MinWidth="100"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Status:" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="NetStatus" Grid.Column="1" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,6"/>
+                        <TextBlock Grid.Row="1" Text="Host IP:" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                        <TextBlock x:Name="NetIp" Grid.Row="1" Grid.Column="1" FontSize="13"
+                                   FontFamily="Consolas" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,6"/>
+                        <TextBlock Grid.Row="2" Text="Role:" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <TextBlock x:Name="NetRole" Grid.Row="2" Grid.Column="1" FontSize="13"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- About -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="ABOUT" Style="{StaticResource Label}" Margin="0,0,0,12"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <Image Source="/logo.png" Width="32" Height="32" Margin="0,0,10,0"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <StackPanel>
+                            <TextBlock Text="AirCode" FontSize="15" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock Text="Version 1.0.0" FontSize="12"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <TextBlock Text="Share code. Share files. Stay local."
+                               FontSize="12" Foreground="{StaticResource TextMutedBrush}"
+                               Margin="0,0,0,4"/>
+                    <TextBlock Text="Fully offline, peer-to-peer classroom communication and file-sharing."
+                               FontSize="12" Foreground="{StaticResource TextMutedBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
