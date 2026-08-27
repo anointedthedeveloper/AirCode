@@ -5,6 +5,7 @@
         xmlns:vm="clr-namespace:AirCode.ViewModels"
         Title="AirCode" Height="720" Width="1100" MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         Background="{StaticResource BgBrush}"
         Icon="/aircode.ico">
     <Grid>
