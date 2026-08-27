@@ -28,9 +28,7 @@ public partial class MembersPage : UserControl
         {
             _vm.SelectedMember = m;
             var win = Window.GetWindow(this) as MainWindow;
-            win?.GetType().GetMethod("Nav_Chat",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                ?.Invoke(win, new object[] { s, e });
+            win?.Nav_Chat(s, e);
         }
     }
 

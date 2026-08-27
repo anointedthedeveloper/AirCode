@@ -2,7 +2,6 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:AirCode.Views"
-        xmlns:vm="clr-namespace:AirCode.ViewModels"
         Title="AirCode" Height="720" Width="1100" MinHeight="600" MinWidth="900"
         WindowStartupLocation="CenterScreen"
         WindowState="Maximized"
@@ -10,114 +9,191 @@
         Icon="/aircode.ico">
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="200"/>
+            <ColumnDefinition Width="220"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Sidebar -->
+        <!-- ═══════════════════════════════════════
+             SIDEBAR
+        ═══════════════════════════════════════ -->
         <Border Grid.Column="0" Background="{StaticResource SidebarBrush}">
             <DockPanel>
+
                 <!-- Logo / Brand -->
-                <StackPanel DockPanel.Dock="Top" Margin="16,20,16,8">
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                        <Image Source="/logo.png" Width="28" Height="28" Margin="0,0,8,0"
-                               RenderOptions.BitmapScalingMode="HighQuality"/>
-                        <TextBlock Text="AirCode" FontSize="18" FontWeight="Bold"
-                                   Foreground="White" VerticalAlignment="Center"/>
+                <StackPanel DockPanel.Dock="Top" Margin="18,22,18,10">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,3">
+                        <Image Source="/logo.png" Width="30" Height="30" Margin="0,0,10,0"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               VerticalAlignment="Center"/>
+                        <TextBlock Text="AirCode" FontSize="19" FontWeight="Bold"
+                                   Foreground="White" VerticalAlignment="Center"
+                                   FontFamily="Segoe UI"/>
                     </StackPanel>
-                    <TextBlock Text="Share code. Stay local." FontSize="10"
-                               Foreground="#64748B" Margin="36,0,0,0"/>
+                    <TextBlock Text="Share code. Stay local." FontSize="10.5"
+                               Foreground="#475569" Margin="40,0,0,0"
+                               FontFamily="Segoe UI"/>
                 </StackPanel>
 
-                <!-- Connection Status Badge -->
-                <Border DockPanel.Dock="Top" Margin="12,4,12,12"
-                        Background="#0F2027" CornerRadius="6" Padding="10,8">
+                <!-- Connection status badge -->
+                <Border DockPanel.Dock="Top" Margin="12,0,12,14"
+                        Background="#0A1628" CornerRadius="8" Padding="12,10">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
+
+                        <!-- Status dot -->
                         <Ellipse Width="8" Height="8" VerticalAlignment="Center"
-                                 Fill="{Binding ConnectionState, Converter={StaticResource ConnStateToColor}}"/>
-                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                            <TextBlock Text="{Binding ConnectionStatusText}" FontSize="12"
-                                       FontWeight="SemiBold" Foreground="White"/>
-                            <TextBlock Text="{Binding ConnectionStatusDetail}" FontSize="10"
-                                       Foreground="#64748B" TextTrimming="CharacterEllipsis"/>
+                                 Fill="{Binding ConnectionState, Converter={StaticResource ConnStateToColor}}"
+                                 Margin="0,0,10,0"/>
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ConnectionStatusText}"
+                                       FontSize="12" FontWeight="SemiBold"
+                                       Foreground="White" FontFamily="Segoe UI"/>
+                            <TextBlock Text="{Binding ConnectionStatusDetail}"
+                                       FontSize="10" Foreground="#475569"
+                                       TextTrimming="CharacterEllipsis"
+                                       FontFamily="Segoe UI"/>
                         </StackPanel>
+
+                        <!-- Connecting spinner -->
+                        <Border Grid.Column="2"
+                                Style="{StaticResource Spinner}"
+                                Width="14" Height="14"
+                                BorderThickness="2"
+                                Margin="6,0,0,0"
+                                Visibility="{Binding ConnectionState,
+                                    Converter={StaticResource IsConnecting}}"/>
                     </Grid>
                 </Border>
 
-                <!-- Nav Items -->
-                <StackPanel DockPanel.Dock="Top" Margin="8,0">
-                    <Button Style="{StaticResource NavButton}" Click="Nav_Home">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⌂" FontSize="14" Width="20"/>
+                <!-- Nav separator label -->
+                <TextBlock DockPanel.Dock="Top" Text="NAVIGATION"
+                           FontSize="9.5" FontWeight="SemiBold"
+                           Foreground="#334155" Margin="18,0,0,6"
+                           FontFamily="Segoe UI"/>
+
+                <!-- Nav items -->
+                <StackPanel DockPanel.Dock="Top">
+                    <!-- Home -->
+                    <Button x:Name="NavHome" Click="Nav_Home">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Home" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource NavButton}" Click="Nav_Members">
+                    <!-- Members -->
+                    <Button x:Name="NavMembers" Click="Nav_Members">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="◉" FontSize="14" Width="20"/>
+                            <TextBlock Text="&#xE716;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Members" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource NavButton}" Click="Nav_Chat">
+                    <!-- Chat -->
+                    <Button x:Name="NavChat" Click="Nav_Chat">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="✉" FontSize="14" Width="20"/>
+                            <TextBlock Text="&#xE8BD;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Chat" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource NavButton}" Click="Nav_Files">
+                    <!-- Files -->
+                    <Button x:Name="NavFiles" Click="Nav_Files">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⇪" FontSize="14" Width="20"/>
+                            <TextBlock Text="&#xE8B7;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Files" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource NavButton}" Click="Nav_Code">
+                    <!-- Code -->
+                    <Button x:Name="NavCode" Click="Nav_Code">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="&#xFE69;" FontSize="14" Width="20"/>
+                            <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Code" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
-                    <Button Style="{StaticResource NavButton}" Click="Nav_Transfers">
+                    <!-- Transfers -->
+                    <Button x:Name="NavTransfers" Click="Nav_Transfers">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⇄" FontSize="14" Width="20"/>
+                            <TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Transfers" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <!-- Logs -->
+                    <Button x:Name="NavLogs" Click="Nav_Logs">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
+                            <TextBlock Text="Logs" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
 
                 <!-- Bottom: Settings -->
-                <StackPanel DockPanel.Dock="Bottom" Margin="8,0,8,12">
-                    <Separator Background="#1E3A5F" Margin="4,8"/>
-                    <Button Style="{StaticResource NavButton}" Click="Nav_Settings">
+                <StackPanel DockPanel.Dock="Bottom" Margin="0,0,0,14">
+                    <Border Height="1" Background="#1E293B" Margin="12,6"/>
+                    <Button x:Name="NavSettings" Click="Nav_Settings">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource NavButton}"/>
+                        </Button.Style>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="⚙" FontSize="14" Width="20"/>
+                            <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Settings" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
 
-                <Grid/><!-- fill -->
+                <Grid/>
             </DockPanel>
         </Border>
 
-        <!-- Main Content Area -->
+        <!-- ═══════════════════════════════════════
+             CONTENT AREA
+        ═══════════════════════════════════════ -->
         <Grid Grid.Column="1" Background="{StaticResource BgBrush}">
-            <!-- Pages (switched via Visibility) -->
-            <views:HomePage    x:Name="HomePage"    Visibility="Visible"/>
-            <views:MembersPage x:Name="MembersPage" Visibility="Collapsed"/>
-            <views:ChatPage    x:Name="ChatPage"    Visibility="Collapsed"/>
-            <views:FilesPage   x:Name="FilesPage"   Visibility="Collapsed"/>
-            <views:CodePage    x:Name="CodePage"    Visibility="Collapsed"/>
-            <views:TransfersPage x:Name="TransfersPage" Visibility="Collapsed"/>
-            <views:SettingsPage x:Name="SettingsPage" Visibility="Collapsed"/>
+            <views:HomePage      x:Name="HomePage"      Visibility="Visible"/>
+            <views:MembersPage   x:Name="MembersPage"   Visibility="Collapsed"/>
+            <views:ChatPage      x:Name="ChatPage"       Visibility="Collapsed"/>
+            <views:FilesPage     x:Name="FilesPage"      Visibility="Collapsed"/>
+            <views:CodePage      x:Name="CodePage"       Visibility="Collapsed"/>
+            <views:TransfersPage x:Name="TransfersPage"  Visibility="Collapsed"/>
+            <views:LogPage       x:Name="LogPage"         Visibility="Collapsed"/>
+            <views:SettingsPage  x:Name="SettingsPage"    Visibility="Collapsed"/>
         </Grid>
 
-        <!-- Toast notification overlay -->
+        <!-- Toast overlay -->
         <views:ToastHost x:Name="ToastHost" Grid.Column="1"
                          VerticalAlignment="Bottom" HorizontalAlignment="Right"
-                         Margin="0,0,20,20" Panel.ZIndex="100"/>
+                         Margin="0,0,20,20" Panel.ZIndex="100"
+                         IsHitTestVisible="False"/>
     </Grid>
 </Window>

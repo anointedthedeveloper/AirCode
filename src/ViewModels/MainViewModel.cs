@@ -10,7 +10,7 @@ using Newtonsoft.Json;
 namespace AirCode.ViewModels;
 
 public enum ConnectionState { Disconnected, Connecting, ConnectedAsClient, ConnectedAsHost }
-public enum AppPage { Home, Members, Chat, Files, Code, Transfers, Settings }
+public enum AppPage { Home, Members, Chat, Files, Code, Transfers, Logs, Settings }
 
 public class MainViewModel : INotifyPropertyChanged
 {
@@ -127,51 +127,105 @@ public class MainViewModel : INotifyPropertyChanged
 
     public async Task<(bool success, string message)> StartHostAsync(string ssid, string password)
     {
+        var log = LogService.Instance;
+        log.Info("Host", "StartHostAsync called");
         ConnectionState = ConnectionState.Connecting;
 
-        // Try creating hotspot
+        string hotspotDetail = "";
+
+        // Attempt hotspot (non-fatal)
         if (!string.IsNullOrEmpty(ssid))
         {
-            var result = await _hotspot.StartHotspotAsync(ssid, password);
-            if (result == HotspotResult.NotSupported || result == HotspotResult.Failed)
+            var (result, detail) = await _hotspot.StartHotspotAsync(ssid, password);
+            hotspotDetail = detail;
+
+            if (result == HotspotResult.NoAdapter)
             {
-                // Non-fatal — proceed on existing network
+                log.Error("Host", detail);
+                ConnectionState = ConnectionState.Disconnected;
+                return (false, detail);
             }
-            await Task.Delay(2000); // give Windows time to create the virtual adapter
+
+            if (result != HotspotResult.Success)
+                log.Warn("Host", detail);
         }
+
+        // Register URL reservation (best-effort, needs elevation)
+        await TryReserveUrlAsync();
 
         var ip = HotspotService.GetBestLocalIp();
         HostIp = ip;
+        log.Info("Host", $"Server will bind to {ip}:{WebSocketServer.WsPort}");
 
         _server = new WebSocketServer();
-        _server.ClientJoined += OnClientJoined;
-        _server.ClientLeft += OnClientLeft;
+        _server.ClientJoined    += OnClientJoined;
+        _server.ClientLeft      += OnClientLeft;
         _server.MessageReceived += OnServerMessageReceived;
 
-        await _server.StartAsync(ip);
-        _discovery.StartHostBeacon(WebSocketServer.WsPort);
+        try
+        {
+            await _server.StartAsync(ip);
+            log.Success("Host", $"WebSocket server started on {ip}:{WebSocketServer.WsPort}");
+        }
+        catch (Exception ex)
+        {
+            log.Error("Host", $"Server failed to start: {ex.Message}");
+            ConnectionState = ConnectionState.Disconnected;
+            return (false, $"Could not start server: {ex.Message}");
+        }
 
-        // Add self as host member
+        _discovery.StartHostBeacon(WebSocketServer.WsPort);
+        log.Info("Host", "UDP discovery beacon started");
+
         var selfMember = new Member
         {
-            Id = "host",
+            Id          = "host",
             DisplayName = _settings.DisplayName,
-            DeviceName = Environment.MachineName,
-            IsHost = true
+            DeviceName  = Environment.MachineName,
+            IsHost      = true
         };
         App.Current.Dispatcher.Invoke(() => Members.Add(selfMember));
 
         ConnectionState = ConnectionState.ConnectedAsHost;
-        AddActivity($"AirCode network started on {ip}");
+        AddActivity($"Network started · {ip}");
         OnPropertyChanged(nameof(MyId));
 
-        return (true, $"AirCode network running on {ip}");
+        var msg = string.IsNullOrEmpty(hotspotDetail)
+            ? $"AirCode running on {ip}"
+            : $"AirCode running on {ip}\n{hotspotDetail}";
+
+        return (true, msg);
+    }
+
+    private static async Task TryReserveUrlAsync()
+    {
+        var log = LogService.Instance;
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(
+                "netsh",
+                $"http add urlacl url=http://+:{WebSocketServer.WsPort}/ws/ user=Everyone")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true
+            };
+            using var p = System.Diagnostics.Process.Start(psi)!;
+            await p.WaitForExitAsync();
+            log.Debug("Host", $"URL ACL reservation exit code: {p.ExitCode}");
+        }
+        catch (Exception ex)
+        {
+            log.Warn("Host", $"URL ACL reservation failed (non-fatal): {ex.Message}");
+        }
     }
 
     // ── Client Mode ───────────────────────────────────────────────────────────
 
     public async Task ConnectAsync(string? manualIp = null)
     {
+        var log = LogService.Instance;
+        log.Info("Client", manualIp != null ? $"Connecting to {manualIp}" : "Auto-discovering host…");
         ConnectionState = ConnectionState.Connecting;
 
         string? ip = manualIp;
@@ -179,30 +233,38 @@ public class MainViewModel : INotifyPropertyChanged
 
         if (ip == null)
         {
-            // Auto-discover
             for (int attempt = 0; attempt < 5; attempt++)
             {
+                log.Debug("Client", $"Discovery attempt {attempt + 1}/5…");
                 var found = await _discovery.DiscoverHostAsync(TimeSpan.FromSeconds(3));
-                if (found.HasValue) { ip = found.Value.ip; port = found.Value.port; break; }
+                if (found.HasValue)
+                {
+                    ip = found.Value.ip;
+                    port = found.Value.port;
+                    log.Success("Client", $"Host found at {ip}:{port}");
+                    break;
+                }
                 await Task.Delay(1000);
             }
         }
 
         if (ip == null)
         {
+            log.Warn("Client", "Host discovery failed — no AirCode host found on this network.");
             ConnectionState = ConnectionState.Disconnected;
             return;
         }
 
         _client = new WebSocketClient();
         _client.MessageReceived += OnClientMessageReceived;
-        _client.Disconnected += OnClientDisconnected;
+        _client.Disconnected    += OnClientDisconnected;
 
-        var ok = await _client.ConnectAsync(ip, port,
-            _settings.DisplayName, Environment.MachineName);
+        log.Info("Client", $"Connecting WebSocket to {ip}:{port}…");
+        var ok = await _client.ConnectAsync(ip, port, _settings.DisplayName, Environment.MachineName);
 
         if (!ok)
         {
+            log.Error("Client", $"WebSocket connection to {ip}:{port} failed.");
             ConnectionState = ConnectionState.Disconnected;
             return;
         }
@@ -210,19 +272,21 @@ public class MainViewModel : INotifyPropertyChanged
         HostIp = ip;
         ConnectionState = ConnectionState.ConnectedAsClient;
         OnPropertyChanged(nameof(MyId));
+        log.Success("Client", $"Connected to AirCode host at {ip}");
         AddActivity("Connected to AirCode network");
     }
 
     public async Task DisconnectAsync()
     {
+        LogService.Instance.Info("Host", "Disconnecting…");
         _reconnectCts?.Cancel();
         _discovery.Stop();
         if (_server != null) { _server.Stop(); _server.Dispose(); _server = null; }
         if (_client != null) { await _client.DisconnectAsync(); _client.Dispose(); _client = null; }
-        if (_hotspot.IsHotspotActive) await _hotspot.StopHotspotAsync();
-
+        if (_hotspot.IsHotspotActive) await _hotspot.StopAsync();
         App.Current.Dispatcher.Invoke(() => Members.Clear());
         ConnectionState = ConnectionState.Disconnected;
+        LogService.Instance.Info("Host", "Disconnected.");
     }
 
     // ── Reconnect ─────────────────────────────────────────────────────────────

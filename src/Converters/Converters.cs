@@ -65,6 +65,14 @@ public class NotNullToVisibilityConverter : IValueConverter
     public object ConvertBack(object v, Type t, object p, CultureInfo c) => Binding.DoNothing;
 }
 
+public class IsConnectingConverter : IValueConverter
+{
+    public object Convert(object v, Type t, object p, CultureInfo c)
+        => v is ConnectionState s && s == ConnectionState.Connecting
+            ? Visibility.Visible : Visibility.Collapsed;
+    public object ConvertBack(object v, Type t, object p, CultureInfo c) => Binding.DoNothing;
+}
+
 public class InverseBoolConverter : IValueConverter
 {
     public object Convert(object v, Type t, object p, CultureInfo c)

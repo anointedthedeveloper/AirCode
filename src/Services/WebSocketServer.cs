@@ -9,32 +9,43 @@ namespace AirCode.Services;
 
 /// <summary>
 /// Lightweight WebSocket server for the AirCode host.
-/// Handles client registration, message routing, and member list management.
+/// Listens on all interfaces so hotspot clients (192.168.137.x) and
+/// localhost connections both reach the same server instance.
 /// </summary>
 public class WebSocketServer : IDisposable
 {
-    private const int MaxMessageSize = 64 * 1024; // 64 KB for control messages
+    private const int MaxMessageSize = 256 * 1024;
     public const int WsPort = 45679;
 
     private HttpListener? _listener;
-    private CancellationTokenSource _cts = new();
+    private readonly CancellationTokenSource _cts = new();
     private readonly ConcurrentDictionary<string, ConnectedClient> _clients = new();
     private bool _disposed;
 
-    public event Action<Member>? ClientJoined;
-    public event Action<string>? ClientLeft;       // client id
+    public event Action<Member>?  ClientJoined;
+    public event Action<string>?  ClientLeft;
     public event Action<NetworkMessage>? MessageReceived;
-    public event Action<Member>? ClientUpdated;
+    public event Action<Member>?  ClientUpdated;
 
-    public IEnumerable<Member> ConnectedMembers =>
-        _clients.Values.Select(c => c.Member);
+    public IEnumerable<Member> ConnectedMembers => _clients.Values.Select(c => c.Member);
 
-    public async Task StartAsync(string ip)
+    public async Task StartAsync(string _ip)
     {
         _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://{ip}:{WsPort}/");
-        _listener.Prefixes.Add($"http://localhost:{WsPort}/");
-        _listener.Start();
+        // Bind to all interfaces — required for hotspot clients on a different subnet
+        _listener.Prefixes.Add($"http://+:{WsPort}/ws/");
+        try
+        {
+            _listener.Start();
+        }
+        catch
+        {
+            // Fallback: bind only to localhost (no admin rights for +)
+            _listener = new HttpListener();
+            _listener.Prefixes.Add($"http://localhost:{WsPort}/ws/");
+            _listener.Prefixes.Add($"http://127.0.0.1:{WsPort}/ws/");
+            _listener.Start();
+        }
 
         _ = Task.Run(AcceptLoop, _cts.Token);
         await Task.CompletedTask;
@@ -50,18 +61,21 @@ public class WebSocketServer : IDisposable
                 if (ctx.Request.IsWebSocketRequest)
                     _ = Task.Run(() => HandleClientAsync(ctx));
                 else
+                {
                     ctx.Response.StatusCode = 426;
+                    ctx.Response.Close();
+                }
             }
             catch (HttpListenerException) { break; }
             catch (ObjectDisposedException) { break; }
-            catch { }
+            catch { /* swallow transient errors */ }
         }
     }
 
     private async Task HandleClientAsync(HttpListenerContext ctx)
     {
-        var wsCtx = await ctx.AcceptWebSocketAsync(null);
-        var ws = wsCtx.WebSocket;
+        var wsCtx  = await ctx.AcceptWebSocketAsync(null);
+        var ws     = wsCtx.WebSocket;
         var clientId = Guid.NewGuid().ToString();
 
         try
@@ -70,7 +84,8 @@ public class WebSocketServer : IDisposable
             var regMsg = await ReceiveMessageAsync(ws, _cts.Token);
             if (regMsg == null || regMsg.Type != MessageType.Register)
             {
-                await ws.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Register first", CancellationToken.None);
+                await ws.CloseAsync(WebSocketCloseStatus.PolicyViolation,
+                    "Register first", CancellationToken.None);
                 return;
             }
 
@@ -78,41 +93,46 @@ public class WebSocketServer : IDisposable
             {
                 Id = clientId,
                 DisplayName = regMsg.SenderName,
-                DeviceName = regMsg.Payload
+                DeviceName  = regMsg.Payload
             };
 
             var client = new ConnectedClient(clientId, ws, member);
             _clients[clientId] = client;
 
-            // Send ack with assigned id
+            // ACK with assigned id
             await SendToClientAsync(client, new NetworkMessage
             {
-                Type = MessageType.RegisterAck,
-                SenderId = "host",
+                Type       = MessageType.RegisterAck,
+                SenderId   = "host",
                 SenderName = "AirCode Host",
                 RecipientId = clientId,
-                Payload = clientId
+                Payload    = clientId
             });
 
-            // Broadcast current member list to new client
+            // Send current member list to new client
             var memberList = _clients.Values.Select(c => new
             {
-                c.Member.Id, c.Member.DisplayName, c.Member.DeviceName, c.Member.IsHost
+                c.Member.Id, c.Member.DisplayName,
+                c.Member.DeviceName, c.Member.IsHost
             });
             await SendToClientAsync(client, new NetworkMessage
             {
-                Type = MessageType.MemberList,
+                Type     = MessageType.MemberList,
                 SenderId = "host",
-                Payload = JsonConvert.SerializeObject(memberList)
+                Payload  = JsonConvert.SerializeObject(memberList)
             });
 
-            // Notify all existing clients of the new joiner
+            // Notify everyone else of the joiner
             await BroadcastAsync(new NetworkMessage
             {
-                Type = MessageType.MemberJoined,
-                SenderId = clientId,
+                Type       = MessageType.MemberJoined,
+                SenderId   = clientId,
                 SenderName = member.DisplayName,
-                Payload = JsonConvert.SerializeObject(new { member.Id, member.DisplayName, member.DeviceName, member.IsHost })
+                Payload    = JsonConvert.SerializeObject(new
+                {
+                    member.Id, member.DisplayName,
+                    member.DeviceName, member.IsHost
+                })
             }, exclude: clientId);
 
             ClientJoined?.Invoke(member);
@@ -123,7 +143,7 @@ public class WebSocketServer : IDisposable
                 var msg = await ReceiveMessageAsync(ws, _cts.Token);
                 if (msg == null) break;
 
-                msg.SenderId = clientId;
+                msg.SenderId   = clientId;
                 msg.SenderName = member.DisplayName;
 
                 await RouteMessageAsync(msg);
@@ -137,10 +157,9 @@ public class WebSocketServer : IDisposable
             _clients.TryRemove(clientId, out _);
             await BroadcastAsync(new NetworkMessage
             {
-                Type = MessageType.MemberLeft,
+                Type     = MessageType.MemberLeft,
                 SenderId = clientId,
-                SenderName = "",
-                Payload = clientId
+                Payload  = clientId
             });
             ClientLeft?.Invoke(clientId);
             try { ws.Dispose(); } catch { }
@@ -162,28 +181,25 @@ public class WebSocketServer : IDisposable
 
             case MessageType.Ping:
                 if (_clients.TryGetValue(msg.SenderId, out var pc))
-                    await SendToClientAsync(pc, new NetworkMessage { Type = MessageType.Pong, SenderId = "host" });
+                    await SendToClientAsync(pc, new NetworkMessage
+                    { Type = MessageType.Pong, SenderId = "host" });
                 break;
 
             default:
                 if (!string.IsNullOrEmpty(msg.RecipientId))
                 {
-                    // Direct message
                     if (_clients.TryGetValue(msg.RecipientId, out var target))
                         await SendToClientAsync(target, msg);
                 }
                 else
-                {
-                    // Broadcast to all except sender
                     await BroadcastAsync(msg, exclude: msg.SenderId);
-                }
                 break;
         }
     }
 
     public async Task BroadcastAsync(NetworkMessage msg, string? exclude = null)
     {
-        var json = JsonConvert.SerializeObject(msg);
+        var json  = JsonConvert.SerializeObject(msg);
         var bytes = Encoding.UTF8.GetBytes(json);
         var tasks = _clients.Values
             .Where(c => c.Id != exclude && c.WebSocket.State == WebSocketState.Open)
@@ -193,7 +209,7 @@ public class WebSocketServer : IDisposable
 
     public async Task SendToClientAsync(ConnectedClient client, NetworkMessage msg)
     {
-        var json = JsonConvert.SerializeObject(msg);
+        var json  = JsonConvert.SerializeObject(msg);
         var bytes = Encoding.UTF8.GetBytes(json);
         await SafeSendAsync(client.WebSocket, bytes);
     }
@@ -208,17 +224,15 @@ public class WebSocketServer : IDisposable
         catch { }
     }
 
-    private static async Task<NetworkMessage?> ReceiveMessageAsync(WebSocket ws, CancellationToken ct)
+    private static async Task<NetworkMessage?> ReceiveMessageAsync(
+        WebSocket ws, CancellationToken ct)
     {
         var buffer = new byte[MaxMessageSize];
         var sb = new StringBuilder();
         WebSocketReceiveResult result;
         do
         {
-            try
-            {
-                result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-            }
+            try { result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct); }
             catch { return null; }
 
             if (result.MessageType == WebSocketMessageType.Close) return null;
@@ -232,7 +246,7 @@ public class WebSocketServer : IDisposable
     public void Stop()
     {
         _cts.Cancel();
-        _listener?.Stop();
+        try { _listener?.Stop(); } catch { }
     }
 
     public void Dispose()
@@ -240,15 +254,15 @@ public class WebSocketServer : IDisposable
         if (_disposed) return;
         _disposed = true;
         Stop();
-        _listener?.Close();
+        try { _listener?.Close(); } catch { }
     }
 }
 
 public class ConnectedClient
 {
-    public string Id { get; }
+    public string    Id        { get; }
     public WebSocket WebSocket { get; }
-    public Member Member { get; }
+    public Member    Member    { get; }
     public ConnectedClient(string id, WebSocket ws, Member member)
     { Id = id; WebSocket = ws; Member = member; }
 }

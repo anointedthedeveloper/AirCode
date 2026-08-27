@@ -5,7 +5,7 @@ namespace AirCode.Views;
 public partial class HostSetupDialog : Window
 {
     public string NetworkName { get; private set; } = "AirCode-Classroom";
-    public string Password { get; private set; } = "aircode2024";
+    public string Password { get; private set; } = "aircode2026";
 
     private bool _showingPassword;
 
@@ -13,8 +13,8 @@ public partial class HostSetupDialog : Window
     {
         InitializeComponent();
         NameBox.Text = "AirCode-Classroom";
-        PassBox.Password = "aircode2024";
-        PassText.Text = "aircode2024";
+        PassBox.Password = "aircode2026";
+        PassText.Text = "aircode2026";
     }
 
     private void TogglePass_Click(object s, RoutedEventArgs e)

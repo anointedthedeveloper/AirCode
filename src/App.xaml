@@ -20,6 +20,7 @@
             <conv:NotNullToVisibilityConverter x:Key="NotNullToVis"/>
             <conv:InverseBoolConverter x:Key="InvBool"/>
             <conv:StringToInitialsConverter x:Key="ToInitials"/>
+            <conv:IsConnectingConverter x:Key="IsConnecting"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

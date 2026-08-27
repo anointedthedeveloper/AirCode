@@ -29,9 +29,9 @@ public partial class HomePage : UserControl
         Dispatcher.InvokeAsync(() =>
         {
             bool connected = _vm?.IsConnected ?? false;
-            StartHostBtn.Visibility = connected ? Visibility.Collapsed : Visibility.Visible;
-            ConnectBtn.Visibility   = connected ? Visibility.Collapsed : Visibility.Visible;
-            DisconnectBtn.Visibility = connected ? Visibility.Visible : Visibility.Collapsed;
+            StartHostBtn.Visibility  = connected ? Visibility.Collapsed : Visibility.Visible;
+            ConnectBtn.Visibility    = connected ? Visibility.Collapsed : Visibility.Visible;
+            DisconnectBtn.Visibility = connected ? Visibility.Visible   : Visibility.Collapsed;
             HostIpText.Text = _vm?.HostIp != null ? $"Host IP: {_vm.HostIp}" : "";
         });
     }
@@ -40,22 +40,28 @@ public partial class HomePage : UserControl
     {
         if (_vm == null) return;
         var dlg = new HostSetupDialog { Owner = _win };
-        if (dlg.ShowDialog() == true)
-        {
-            StartHostBtn.IsEnabled = false;
-            var (ok, msg) = await _vm.StartHostAsync(dlg.NetworkName, dlg.Password);
-            StartHostBtn.IsEnabled = true;
-            if (!ok)
-                MessageBox.Show(msg, "AirCode", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        if (dlg.ShowDialog() != true) return;
+
+        StartHostBtn.IsEnabled = false;
+        ConnectBtn.IsEnabled   = false;
+        var (ok, msg) = await _vm.StartHostAsync(dlg.NetworkName, dlg.Password);
+        StartHostBtn.IsEnabled = true;
+        ConnectBtn.IsEnabled   = true;
+
+        if (!ok)
+            MessageBox.Show(msg, "AirCode", MessageBoxButton.OK, MessageBoxImage.Warning);
+        else
+            NotifyStatus(msg);
     }
 
     private async void Connect_Click(object s, RoutedEventArgs e)
     {
         if (_vm == null) return;
-        ConnectBtn.IsEnabled = false;
+        ConnectBtn.IsEnabled   = false;
+        StartHostBtn.IsEnabled = false;
         await _vm.ConnectAsync();
-        ConnectBtn.IsEnabled = true;
+        ConnectBtn.IsEnabled   = true;
+        StartHostBtn.IsEnabled = true;
 
         if (!_vm.IsConnected)
         {
@@ -81,18 +87,18 @@ public partial class HomePage : UserControl
         await _vm.DisconnectAsync();
     }
 
-    private void SendFile_Click(object s, RoutedEventArgs e) =>
-        (_win as MainWindow)?.GetType().GetMethod("Nav_Files")?.Invoke(_win, new object[] { s, e });
+    private void SendFile_Click(object s, RoutedEventArgs e)
+        => _win?.Nav_Files(s, e);
 
-    private void ShareCode_Click(object s, RoutedEventArgs e) =>
-        _win?.GetType().GetField("CodePage",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+    private void ShareCode_Click(object s, RoutedEventArgs e)
+        => _win?.Nav_Code(s, e);
 
     private void OpenChat_Click(object s, RoutedEventArgs e)
+        => _win?.Nav_Chat(s, e);
+
+    private static void NotifyStatus(string msg)
     {
-        if (_win == null) return;
-        _win.GetType().GetMethod("Nav_Chat",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            ?.Invoke(_win, new object[] { s, e });
+        // Non-modal — already shown via toast
+        System.Diagnostics.Debug.WriteLine(msg);
     }
 }
