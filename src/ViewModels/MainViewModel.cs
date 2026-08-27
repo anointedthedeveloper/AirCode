@@ -210,32 +210,34 @@ public class MainViewModel : INotifyPropertyChanged
     public async Task ConnectAsync(string? manualIp = null)
     {
         var log = LogService.Instance;
-        log.Info("Client", manualIp != null ? $"Connecting to {manualIp}" : "Auto-discovering host…");
+        log.Info("Client", manualIp != null
+            ? $"Manual connect to {manualIp}"
+            : "Auto-discovering host…");
         ConnectionState = ConnectionState.Connecting;
 
-        string? ip = manualIp;
-        int port = WebSocketServer.WsPort;
+        string? ip   = manualIp;
+        int     port = WebSocketServer.WsPort;
 
         if (ip == null)
         {
-            for (int attempt = 0; attempt < 5; attempt++)
+            // Send multiple probe rounds — phone hotspots sometimes drop first broadcast
+            for (int attempt = 1; attempt <= 6; attempt++)
             {
-                log.Debug("Client", $"Discovery attempt {attempt + 1}/5…");
-                var found = await _discovery.DiscoverHostAsync(TimeSpan.FromSeconds(3));
+                log.Debug("Client", $"Discovery attempt {attempt}/6…");
+                var found = await _discovery.DiscoverHostAsync(TimeSpan.FromSeconds(2));
                 if (found.HasValue)
                 {
-                    ip = found.Value.ip;
+                    ip   = found.Value.ip;
                     port = found.Value.port;
-                    log.Success("Client", $"Host found at {ip}:{port}");
+                    log.Success("Client", $"Host found via UDP: {ip}:{port}");
                     break;
                 }
-                await Task.Delay(1000);
             }
         }
 
         if (ip == null)
         {
-            log.Warn("Client", "Host discovery failed — no AirCode host found on this network.");
+            log.Warn("Client", "Auto-discovery failed — no host found on this network.");
             ConnectionState = ConnectionState.Disconnected;
             return;
         }
@@ -244,12 +246,12 @@ public class MainViewModel : INotifyPropertyChanged
         _client.MessageReceived += OnClientMessageReceived;
         _client.Disconnected    += OnClientDisconnected;
 
-        log.Info("Client", $"Connecting WebSocket to {ip}:{port}…");
-        var ok = await _client.ConnectAsync(ip, port, _settings.DisplayName, Environment.MachineName);
+        var ok = await _client.ConnectAsync(ip, port,
+            _settings.DisplayName, Environment.MachineName);
 
         if (!ok)
         {
-            log.Error("Client", $"WebSocket connection to {ip}:{port} failed.");
+            log.Error("Client", $"WebSocket connect to {ip}:{port} failed.");
             ConnectionState = ConnectionState.Disconnected;
             return;
         }
@@ -257,7 +259,7 @@ public class MainViewModel : INotifyPropertyChanged
         HostIp = ip;
         ConnectionState = ConnectionState.ConnectedAsClient;
         OnPropertyChanged(nameof(MyId));
-        log.Success("Client", $"Connected to AirCode host at {ip}");
+        log.Success("Client", $"Connected to {ip}");
         AddActivity("Connected to AirCode network");
     }
 

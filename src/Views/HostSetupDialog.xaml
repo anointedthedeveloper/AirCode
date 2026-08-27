@@ -1,7 +1,8 @@
 <Window x:Class="AirCode.Views.HostSetupDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Start AirCode Network" Height="320" Width="460"
+        Title="Start AirCode Network" Height="Auto" Width="460"
+        SizeToContent="Height" MinHeight="200"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="{StaticResource BgBrush}">
     <DockPanel Margin="28">

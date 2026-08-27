@@ -7,11 +7,6 @@ using Newtonsoft.Json;
 
 namespace AirCode.Services;
 
-/// <summary>
-/// Lightweight WebSocket server for the AirCode host.
-/// Listens on all interfaces so hotspot clients (192.168.137.x) and
-/// localhost connections both reach the same server instance.
-/// </summary>
 public class WebSocketServer : IDisposable
 {
     private const int MaxMessageSize = 256 * 1024;
@@ -22,36 +17,47 @@ public class WebSocketServer : IDisposable
     private readonly ConcurrentDictionary<string, ConnectedClient> _clients = new();
     private bool _disposed;
 
-    public event Action<Member>?  ClientJoined;
-    public event Action<string>?  ClientLeft;
+    public event Action<Member>?         ClientJoined;
+    public event Action<string>?         ClientLeft;
     public event Action<NetworkMessage>? MessageReceived;
-    public event Action<Member>?  ClientUpdated;
+    public event Action<Member>?         ClientUpdated;
 
     public IEnumerable<Member> ConnectedMembers => _clients.Values.Select(c => c.Member);
 
     public async Task StartAsync(string _ip)
     {
+        var log = LogService.Instance;
         _listener = new HttpListener();
-        // Always bind to all interfaces (0.0.0.0) so hotspot clients,
-        // Wi-Fi clients, and localhost can all connect.
-        // Requires URL ACL reservation OR running as Administrator.
+
+        // Bind to all interfaces — works when running as Administrator
+        // or when URL ACL has been reserved.
         try
         {
-            _listener.Prefixes.Add($"http://+:{WsPort}/ws/");
+            _listener.Prefixes.Add($"http://+:{WsPort}/");
             _listener.Start();
-            LogService.Instance.Info("Server", $"Listening on all interfaces port {WsPort}");
+            log.Success("Server", $"Listening on all interfaces http://+:{WsPort}/");
         }
         catch
         {
-            // Fallback: bind only to localhost if no admin rights
+            // Fallback: bind to localhost only (non-admin, no ACL)
+            _listener.Close();
             _listener = new HttpListener();
-            _listener.Prefixes.Add($"http://localhost:{WsPort}/ws/");
-            _listener.Prefixes.Add($"http://127.0.0.1:{WsPort}/ws/");
-            _listener.Start();
-            LogService.Instance.Warn("Server",
-                $"Could not bind to all interfaces — listening on localhost:{WsPort} only. " +
-                "Run as Administrator for full network access.");
+            _listener.Prefixes.Add($"http://localhost:{WsPort}/");
+            _listener.Prefixes.Add($"http://127.0.0.1:{WsPort}/");
+            try
+            {
+                _listener.Start();
+                log.Warn("Server",
+                    $"Bound to localhost:{WsPort} only — clients on other PCs cannot connect. " +
+                    "Run as Administrator for full network access.");
+            }
+            catch (Exception ex)
+            {
+                log.Error("Server", $"Could not start listener: {ex.Message}");
+                throw;
+            }
         }
+
         _ = Task.Run(AcceptLoop, _cts.Token);
         await Task.CompletedTask;
     }
@@ -73,19 +79,18 @@ public class WebSocketServer : IDisposable
             }
             catch (HttpListenerException) { break; }
             catch (ObjectDisposedException) { break; }
-            catch { /* swallow transient errors */ }
+            catch { }
         }
     }
 
     private async Task HandleClientAsync(HttpListenerContext ctx)
     {
-        var wsCtx  = await ctx.AcceptWebSocketAsync(null);
-        var ws     = wsCtx.WebSocket;
-        var clientId = Guid.NewGuid().ToString();
+        var wsCtx     = await ctx.AcceptWebSocketAsync(null);
+        var ws        = wsCtx.WebSocket;
+        var clientId  = Guid.NewGuid().ToString();
 
         try
         {
-            // First message must be Register
             var regMsg = await ReceiveMessageAsync(ws, _cts.Token);
             if (regMsg == null || regMsg.Type != MessageType.Register)
             {
@@ -96,7 +101,7 @@ public class WebSocketServer : IDisposable
 
             var member = new Member
             {
-                Id = clientId,
+                Id          = clientId,
                 DisplayName = regMsg.SenderName,
                 DeviceName  = regMsg.Payload
             };
@@ -104,17 +109,17 @@ public class WebSocketServer : IDisposable
             var client = new ConnectedClient(clientId, ws, member);
             _clients[clientId] = client;
 
-            // ACK with assigned id
+            LogService.Instance.Info("Server", $"Client registered: {member.DisplayName} ({clientId})");
+
             await SendToClientAsync(client, new NetworkMessage
             {
-                Type       = MessageType.RegisterAck,
-                SenderId   = "host",
-                SenderName = "AirCode Host",
+                Type        = MessageType.RegisterAck,
+                SenderId    = "host",
+                SenderName  = "AirCode Host",
                 RecipientId = clientId,
-                Payload    = clientId
+                Payload     = clientId
             });
 
-            // Send current member list to new client
             var memberList = _clients.Values.Select(c => new
             {
                 c.Member.Id, c.Member.DisplayName,
@@ -127,7 +132,6 @@ public class WebSocketServer : IDisposable
                 Payload  = JsonConvert.SerializeObject(memberList)
             });
 
-            // Notify everyone else of the joiner
             await BroadcastAsync(new NetworkMessage
             {
                 Type       = MessageType.MemberJoined,
@@ -142,15 +146,12 @@ public class WebSocketServer : IDisposable
 
             ClientJoined?.Invoke(member);
 
-            // Message pump
             while (ws.State == WebSocketState.Open && !_cts.IsCancellationRequested)
             {
                 var msg = await ReceiveMessageAsync(ws, _cts.Token);
                 if (msg == null) break;
-
                 msg.SenderId   = clientId;
                 msg.SenderName = member.DisplayName;
-
                 await RouteMessageAsync(msg);
                 MessageReceived?.Invoke(msg);
             }
@@ -239,7 +240,6 @@ public class WebSocketServer : IDisposable
         {
             try { result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct); }
             catch { return null; }
-
             if (result.MessageType == WebSocketMessageType.Close) return null;
             sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
         } while (!result.EndOfMessage);

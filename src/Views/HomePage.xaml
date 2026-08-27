@@ -2,68 +2,126 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{StaticResource BgBrush}">
-    <ScrollViewer Style="{StaticResource MinimalScroll}">
-        <Grid Margin="32">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="32,28,32,28">
 
             <!-- Header -->
-            <StackPanel Grid.Row="0" Margin="0,0,0,24">
+            <StackPanel Margin="0,0,0,20">
                 <TextBlock Text="Home" Style="{StaticResource PageTitle}"/>
                 <TextBlock Text="AirCode network overview" FontSize="13"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0"/>
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0"/>
             </StackPanel>
 
             <!-- Network Status Card -->
-            <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,0,20">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,8,0"
-                                     Fill="{Binding ConnectionState, Converter={StaticResource ConnStateToColor}}"/>
-                            <TextBlock Text="{Binding ConnectionStatusText}" FontSize="15"
-                                       FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
-                        </StackPanel>
-                        <TextBlock Text="{Binding ConnectionStatusDetail}" FontSize="13"
-                                   Foreground="{StaticResource TextSecondaryBrush}"/>
-                        <TextBlock x:Name="HostIpText" FontSize="11" FontFamily="Consolas"
-                                   Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0"/>
+            <Border Style="{StaticResource Card}" Margin="0,0,0,16">
+                <StackPanel>
+                    <!-- Status row -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <Ellipse Width="10" Height="10" VerticalAlignment="Center" Margin="0,0,8,0"
+                                 Fill="{Binding ConnectionState, Converter={StaticResource ConnStateToColor}}"/>
+                        <TextBlock Text="{Binding ConnectionStatusText}" FontSize="15"
+                                   FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
                     </StackPanel>
+                    <TextBlock Text="{Binding ConnectionStatusDetail}" FontSize="13"
+                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="HostIpText" FontSize="11.5" FontFamily="Consolas"
+                               Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12"/>
 
-                    <!-- Host/Connect buttons -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="StartHostBtn" Content="Start Network" Style="{StaticResource PrimaryButton}"
-                                Margin="0,0,8,0" Click="StartHost_Click"/>
-                        <Button x:Name="ConnectBtn" Content="Connect" Style="{StaticResource SecondaryButton}"
-                                Click="Connect_Click"/>
-                        <Button x:Name="DisconnectBtn" Content="Disconnect" Style="{StaticResource DangerButton}"
-                                Visibility="Collapsed" Click="Disconnect_Click"/>
-                    </StackPanel>
-                </Grid>
+                    <!-- Action buttons — wrap on small screens -->
+                    <WrapPanel>
+                        <Button x:Name="StartHostBtn" Style="{StaticResource PrimaryButton}"
+                                Margin="0,0,8,6" Padding="16,9" Click="StartHost_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE704;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Start Network" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ConnectBtn" Style="{StaticResource SecondaryButton}"
+                                Margin="0,0,8,6" Padding="16,9" Click="Connect_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE703;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Connect" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="DisconnectBtn" Style="{StaticResource DangerButton}"
+                                Visibility="Collapsed" Margin="0,0,0,6" Padding="16,9"
+                                Click="Disconnect_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE711;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Disconnect" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </WrapPanel>
+
+                    <!-- Inline manual IP entry — shown when auto-discover fails -->
+                    <Border x:Name="ManualPanel" Visibility="Collapsed"
+                            Background="{StaticResource BgBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="7"
+                            Padding="14,12" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Auto-discovery failed — enter the host IP manually:"
+                                       FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                                       Margin="0,0,0,8"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="ManualIpBox" Style="{StaticResource InputBox}"
+                                         FontFamily="Consolas" FontSize="13"
+                                         Text="192.168.1.1"
+                                         KeyDown="ManualIp_KeyDown"/>
+                                <Button Grid.Column="1" Content="Connect"
+                                        Style="{StaticResource PrimaryButton}"
+                                        Padding="16,9" Margin="8,0,0,0"
+                                        Click="ManualConnect_Click"/>
+                                <Button Grid.Column="2" Content="✕"
+                                        Style="{StaticResource GhostButton}"
+                                        Padding="10,9" Margin="4,0,0,0"
+                                        Click="CloseManual_Click"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
             </Border>
 
-            <!-- Quick Action Buttons -->
-            <WrapPanel Grid.Row="2" Margin="0,0,0,24">
-                <Button Content="⇪  Send File" Style="{StaticResource SecondaryButton}"
-                        Margin="0,0,8,8" Padding="16,10" Click="SendFile_Click"/>
-                <Button Content="&#xFE69;  Share Code" Style="{StaticResource SecondaryButton}"
-                        Margin="0,0,8,8" Padding="16,10" Click="ShareCode_Click"/>
-                <Button Content="✉  Open Chat" Style="{StaticResource SecondaryButton}"
-                        Margin="0,0,8,8" Padding="16,10" Click="OpenChat_Click"/>
+            <!-- Quick Actions -->
+            <WrapPanel Margin="0,0,0,16">
+                <Button Style="{StaticResource SecondaryButton}"
+                        Margin="0,0,8,8" Padding="14,9" Click="SendFile_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE898;" FontFamily="Segoe MDL2 Assets"
+                                   FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="Send File" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource SecondaryButton}"
+                        Margin="0,0,8,8" Padding="14,9" Click="ShareCode_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE943;" FontFamily="Segoe MDL2 Assets"
+                                   FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="Share Code" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Style="{StaticResource SecondaryButton}"
+                        Margin="0,0,8,8" Padding="14,9" Click="OpenChat_Click">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="&#xE8BD;" FontFamily="Segoe MDL2 Assets"
+                                   FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="Open Chat" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </WrapPanel>
 
             <!-- Recent Activity -->
-            <Border Grid.Row="3" Style="{StaticResource Card}">
+            <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <TextBlock Text="RECENT ACTIVITY" Style="{StaticResource Label}" Margin="0,0,0,12"/>
+                    <TextBlock Text="RECENT ACTIVITY" Style="{StaticResource Label}" Margin="0,0,0,10"/>
                     <ItemsControl x:Name="ActivityList" ItemsSource="{Binding RecentActivity}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -75,18 +133,21 @@
                                     <TextBlock Text="{Binding Text}" FontSize="13"
                                                Foreground="{StaticResource TextSecondaryBrush}"
                                                TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Grid.Column="1" Text="{Binding TimeText}" FontSize="11"
-                                               Foreground="{StaticResource TextMutedBrush}" Margin="12,0,0,0"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding TimeText}"
+                                               FontSize="11" FontFamily="Consolas"
+                                               Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="12,0,0,0" VerticalAlignment="Center"/>
                                 </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock Text="No activity yet — connect to an AirCode network to get started."
+                    <TextBlock Text="No activity yet — start or join an AirCode network."
                                FontSize="13" Foreground="{StaticResource TextMutedBrush}"
-                               HorizontalAlignment="Center" Margin="0,20"
+                               HorizontalAlignment="Center" Margin="0,16"
                                Visibility="{Binding RecentActivity.Count, Converter={StaticResource InvBoolToVis}}"/>
                 </StackPanel>
             </Border>
-        </Grid>
+
+        </StackPanel>
     </ScrollViewer>
 </UserControl>

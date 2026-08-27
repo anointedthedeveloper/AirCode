@@ -22,27 +22,17 @@ public class WebSocketClient : IDisposable
     public async Task<bool> ConnectAsync(string ip, int port,
         string displayName, string deviceName)
     {
+        var log = LogService.Instance;
+        log.Info("Client", $"Connecting to ws://{ip}:{port}/");
         try
         {
             _ws  = new ClientWebSocket();
             _cts = new CancellationTokenSource();
 
-            // Try /ws/ path first (matches server prefix)
-            Uri uri;
-            try
-            {
-                uri = new Uri($"ws://{ip}:{port}/ws/");
-                using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await _ws.ConnectAsync(uri, cts2.Token);
-            }
-            catch
-            {
-                // Retry without path
-                _ws  = new ClientWebSocket();
-                uri  = new Uri($"ws://{ip}:{port}/");
-                using var cts3 = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await _ws.ConnectAsync(uri, cts3.Token);
-            }
+            using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            await _ws.ConnectAsync(new Uri($"ws://{ip}:{port}/"), cts2.Token);
+
+            log.Success("Client", $"WebSocket connected to {ip}:{port}");
 
             await SendAsync(new NetworkMessage
             {
@@ -55,8 +45,9 @@ public class WebSocketClient : IDisposable
             Connected?.Invoke();
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            log.Error("Client", $"Connect failed: {ex.Message}");
             return false;
         }
     }

@@ -1,7 +1,8 @@
 <Window x:Class="AirCode.Views.FileOfferDialog"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Incoming File" Height="260" Width="400"
+        Title="Incoming File" Height="Auto" Width="420"
+        SizeToContent="Height" MinHeight="200"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Background="{StaticResource BgBrush}">
     <Grid Margin="28">
