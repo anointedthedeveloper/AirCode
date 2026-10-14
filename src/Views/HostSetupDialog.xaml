@@ -21,64 +21,41 @@
             <StackPanel Margin="0,0,0,20">
                 <TextBlock Text="Start AirCode Network" FontSize="18" FontWeight="Bold"
                            Foreground="{StaticResource TextPrimaryBrush}" FontFamily="Segoe UI"/>
-                <TextBlock Text="Other computers will connect to this host."
+                <TextBlock Text="Other devices connect to this PC through its hotspot."
                            FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                            Margin="0,4,0,0" FontFamily="Segoe UI"/>
             </StackPanel>
 
-            <!-- Step 1 -->
+            <!-- How it works -->
             <Border Style="{StaticResource Card}" Margin="0,0,0,12" Padding="14">
                 <StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <Border Width="22" Height="22" CornerRadius="11"
-                                Background="{StaticResource PrimaryBrush}" Margin="0,0,10,0">
-                            <TextBlock Text="1" FontSize="11" FontWeight="Bold"
-                                       Foreground="White" HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"/>
-                        </Border>
-                        <TextBlock Text="Connect all PCs to the same Wi-Fi" FontSize="13"
-                                   FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"
-                                   VerticalAlignment="Center" FontFamily="Segoe UI"/>
-                    </StackPanel>
-                    <TextBlock Text="Use your phone hotspot, Windows Mobile Hotspot, or any router.&#x0a;All devices must be on the same network." FontSize="12"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               Margin="32,0,0,0" TextWrapping="Wrap" FontFamily="Segoe UI"/>
+                    <TextBlock Text="1.  Connect this PC to Wi-Fi (the internet or school network)" FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontFamily="Segoe UI" Margin="0,0,0,4"/>
+                    <TextBlock Text="2.  AirCode turns this PC into a Wi-Fi hotspot" FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontFamily="Segoe UI" Margin="0,0,0,4"/>
+                    <TextBlock Text="3.  Everyone else joins that hotspot and taps Connect in AirCode" FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontFamily="Segoe UI"/>
                 </StackPanel>
             </Border>
 
-            <!-- Step 2 — detected IP -->
+            <!-- Hotspot settings -->
             <Border Style="{StaticResource Card}" Padding="14">
                 <StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                        <Border Width="22" Height="22" CornerRadius="11"
-                                Background="{StaticResource PrimaryBrush}" Margin="0,0,10,0">
-                            <TextBlock Text="2" FontSize="11" FontWeight="Bold"
-                                       Foreground="White" HorizontalAlignment="Center"
-                                       VerticalAlignment="Center"/>
-                        </Border>
-                        <TextBlock Text="AirCode will host on your current network"
-                                   FontSize="13" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   VerticalAlignment="Center" FontFamily="Segoe UI"/>
+                    <CheckBox x:Name="UseHotspotBox" IsChecked="True" Checked="Hotspot_Toggled" Unchecked="Hotspot_Toggled"
+                              Content="Share this PC's Wi-Fi as a hotspot (recommended)"
+                              FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
+                              Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,10"/>
+                    <StackPanel x:Name="HotspotFields">
+                        <TextBlock Text="NETWORK NAME" Style="{StaticResource Label}" Margin="0,0,0,4"/>
+                        <TextBox x:Name="SsidBox" Style="{StaticResource InputBox}" MaxLength="32" Margin="0,0,0,10"/>
+                        <TextBlock Text="PASSWORD (8+ characters)" Style="{StaticResource Label}" Margin="0,0,0,4"/>
+                        <TextBox x:Name="PasswordBox" Style="{StaticResource InputBox}" MaxLength="63"/>
                     </StackPanel>
-                    <StackPanel Margin="32,0,0,0">
-                        <TextBlock x:Name="AdapterText" FontSize="12"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                   FontFamily="Segoe UI"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <TextBlock Text="Host IP:" FontSize="12"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       Margin="0,0,8,0" FontFamily="Segoe UI"/>
-                            <TextBlock x:Name="IpText" FontSize="13" FontWeight="SemiBold"
-                                       FontFamily="Consolas"
-                                       Foreground="{StaticResource PrimaryBrush}"/>
-                        </StackPanel>
-                        <TextBlock x:Name="NoNetworkText"
-                                   Text="⚠ No network detected. Connect to Wi-Fi first."
-                                   FontSize="12" Foreground="#EF4444"
-                                   Visibility="Collapsed" Margin="0,6,0,0"
-                                   FontFamily="Segoe UI"/>
-                    </StackPanel>
+                    <TextBlock x:Name="NoHotspotText" Visibility="Collapsed" TextWrapping="Wrap"
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" FontFamily="Segoe UI"
+                               Text="Hosting on the Wi-Fi you are already connected to. Other devices must join that same network."/>
+                    <TextBlock x:Name="ErrorText" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,8,0,0"
+                               FontSize="12" Foreground="#EF4444" FontFamily="Segoe UI"/>
                 </StackPanel>
             </Border>
         </StackPanel>

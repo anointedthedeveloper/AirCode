@@ -25,16 +25,32 @@ public partial class CodePage : UserControl
         vm.Members.CollectionChanged += (s, e) => Dispatcher.InvokeAsync(RebuildRecipients);
         RebuildRecipients();
 
-        // Handle incoming code snippets
+        // Inbox of everything received this session
+        InboxList.ItemsSource = vm.ReceivedSnippets;
+        vm.ReceivedSnippets.CollectionChanged += (s, e) => UpdateInbox();
+        UpdateInbox();
+
+        // Pop incoming snippets open (non-modal, so several can arrive without blocking the app)
         vm.CodeReceived += (senderName, lang, code) =>
         {
             Dispatcher.InvokeAsync(() =>
             {
                 var dlg = new CodeReceivedDialog(senderName, lang, code)
                 { Owner = Window.GetWindow(this) };
-                dlg.ShowDialog();
+                dlg.Show();
             });
         };
+    }
+
+    private void UpdateInbox()
+        => InboxPanel.Visibility = (_vm?.ReceivedSnippets.Count ?? 0) > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+
+    private void OpenSnippet_Click(object s, RoutedEventArgs e)
+    {
+        if (s is Button { Tag: ReceivedSnippet sn })
+            new CodeReceivedDialog(sn.SenderName, sn.Language, sn.Code)
+            { Owner = Window.GetWindow(this) }.Show();
     }
 
     private void RebuildRecipients()
@@ -52,13 +68,20 @@ public partial class CodePage : UserControl
         if (_vm == null) return;
         var code = CodeBox.Text.Trim();
         if (string.IsNullOrEmpty(code)) { MessageBox.Show("Please enter some code."); return; }
+        if (!_vm.IsConnected)
+        {
+            Services.NotificationService.Instance.Show("Not connected",
+                "Connect to an AirCode network first.", Services.NotificationKind.Warning);
+            return;
+        }
 
         var lang = LangCombo.SelectedItem?.ToString() ?? "Plain Text";
         var recipientId = RecipientCombo.SelectedItem is Member m ? m.Id : "";
 
         await _vm.SendCodeAsync(recipientId, lang, code);
-        MessageBox.Show("Code shared successfully.", "AirCode",
-            MessageBoxButton.OK, MessageBoxImage.None);
+        Services.NotificationService.Instance.Show("Code shared",
+            $"{lang} snippet sent to {(RecipientCombo.SelectedItem is Member rm ? rm.DisplayName : "everyone")}",
+            Services.NotificationKind.Success);
     }
 
     private void Clear_Click(object s, RoutedEventArgs e) => CodeBox.Clear();

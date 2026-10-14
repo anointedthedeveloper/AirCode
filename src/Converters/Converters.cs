@@ -92,3 +92,11 @@ public class StringToInitialsConverter : IValueConverter
     }
     public object ConvertBack(object v, Type t, object p, CultureInfo c) => Binding.DoNothing;
 }
+
+/// <summary>Visible when an integer is greater than zero (unread badges).</summary>
+public class CountToVisibilityConverter : IValueConverter
+{
+    public object Convert(object v, Type t, object p, CultureInfo c)
+        => v is int n && n > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public object ConvertBack(object v, Type t, object p, CultureInfo c) => Binding.DoNothing;
+}

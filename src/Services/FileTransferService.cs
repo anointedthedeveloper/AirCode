@@ -17,6 +17,7 @@ public class FileTransferService : IDisposable
     private const long MaxFileSize = 2L * 1024 * 1024 * 1024; // 2 GB limit
 
     private bool _disposed;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> _sends = new();
 
     public event Action<FileTransfer>? TransferStarted;
     public event Action<FileTransfer>? TransferCompleted;
@@ -36,14 +37,16 @@ public class FileTransferService : IDisposable
         listener.Start();
         int port = ((IPEndPoint)listener.LocalEndpoint).Port;
 
+        // Wait up to 2 minutes for the receiver to accept (the offer dialog needs a human)
+        var cts2 = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts2.CancelAfter(TimeSpan.FromMinutes(2));
+        _sends[transfer.Id] = cts2;
+
         _ = Task.Run(async () =>
         {
             try
             {
-                using var cts2 = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts2.CancelAfter(TimeSpan.FromSeconds(30)); // 30s connect timeout
-
-                var client = await AcceptWithTimeoutAsync(listener, cts2.Token);
+                using var client = await AcceptWithTimeoutAsync(listener, cts2.Token);
                 cts2.CancelAfter(TimeSpan.FromHours(2)); // reset after connect
 
                 transfer.Status = TransferStatus.Active;
@@ -54,17 +57,16 @@ public class FileTransferService : IDisposable
 
                 var buffer = new byte[ChunkSize];
                 long sent = 0;
-                var sw = System.Diagnostics.Stopwatch.StartNew();
                 long lastBytes = 0;
                 var speedTimer = DateTime.UtcNow;
 
                 int read;
-                while ((read = await file.ReadAsync(buffer, 0, buffer.Length, ct)) > 0)
+                while ((read = await file.ReadAsync(buffer, 0, buffer.Length, cts2.Token)) > 0)
                 {
-                    await stream.WriteAsync(buffer, 0, read, ct);
+                    await stream.WriteAsync(buffer, 0, read, cts2.Token);
                     sent += read;
                     transfer.BytesTransferred = sent;
-                    transfer.Progress = (double)sent / transfer.FileSize * 100;
+                    transfer.Progress = transfer.FileSize == 0 ? 100 : (double)sent / transfer.FileSize * 100;
 
                     // update speed every 500ms
                     if ((DateTime.UtcNow - speedTimer).TotalMilliseconds >= 500)
@@ -78,7 +80,7 @@ public class FileTransferService : IDisposable
                     }
                 }
 
-                await stream.FlushAsync(ct);
+                await stream.FlushAsync(cts2.Token);
                 transfer.Status = TransferStatus.Completed;
                 transfer.Progress = 100;
                 transfer.CompletedAt = DateTime.Now;
@@ -87,8 +89,12 @@ public class FileTransferService : IDisposable
             }
             catch (OperationCanceledException)
             {
-                transfer.Status = TransferStatus.Cancelled;
-                TransferFailed?.Invoke(transfer);
+                // A decline already marked the transfer — don't report that as a failure
+                if (transfer.Status != TransferStatus.Declined)
+                {
+                    transfer.Status = TransferStatus.Cancelled;
+                    TransferFailed?.Invoke(transfer);
+                }
             }
             catch
             {
@@ -98,10 +104,19 @@ public class FileTransferService : IDisposable
             finally
             {
                 listener.Stop();
+                _sends.TryRemove(transfer.Id, out _);
+                cts2.Dispose();
             }
-        }, ct);
+        });
 
         return port;
+    }
+
+    /// <summary>Stops waiting for a receiver (they declined, or the sender cancelled).</summary>
+    public void CancelSend(string transferId)
+    {
+        if (_sends.TryGetValue(transferId, out var cts))
+            try { cts.Cancel(); } catch { }
     }
 
     // ── Receive ───────────────────────────────────────────────────────────────
@@ -112,7 +127,9 @@ public class FileTransferService : IDisposable
         try
         {
             using var client = new TcpClient();
-            await client.ConnectAsync(senderIp, port, ct);
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(TimeSpan.FromSeconds(10));
+            await client.ConnectAsync(senderIp, port, connectCts.Token);
 
             transfer.Status = TransferStatus.Active;
             transfer.SavePath = savePath;
@@ -135,7 +152,7 @@ public class FileTransferService : IDisposable
                 await file.WriteAsync(buffer, 0, read, ct);
                 received += read;
                 transfer.BytesTransferred = received;
-                transfer.Progress = (double)received / transfer.FileSize * 100;
+                transfer.Progress = transfer.FileSize == 0 ? 100 : (double)received / transfer.FileSize * 100;
 
                 if ((DateTime.UtcNow - speedTimer).TotalMilliseconds >= 500)
                 {
@@ -147,6 +164,9 @@ public class FileTransferService : IDisposable
                     TransferProgress?.Invoke(transfer);
                 }
             }
+
+            if (received < transfer.FileSize)
+                throw new IOException("Connection closed before the file finished.");
 
             transfer.Status = TransferStatus.Completed;
             transfer.Progress = 100;
@@ -170,11 +190,12 @@ public class FileTransferService : IDisposable
 
     private static async Task<TcpClient> AcceptWithTimeoutAsync(TcpListener listener, CancellationToken ct)
     {
-        return await Task.Run(() =>
+        using (ct.Register(() => { try { listener.Stop(); } catch { } }))
         {
-            using (ct.Register(() => listener.Stop()))
-                return listener.AcceptTcpClient();
-        }, ct);
+            try { return await listener.AcceptTcpClientAsync(); }
+            catch (Exception) when (ct.IsCancellationRequested)
+            { throw new OperationCanceledException(ct); }
+        }
     }
 
     public void Dispose()

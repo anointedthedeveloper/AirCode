@@ -17,6 +17,12 @@ public class WebSocketServer : IDisposable
     private readonly ConcurrentDictionary<string, ConnectedClient> _clients = new();
     private bool _disposed;
 
+    /// <summary>Seconds without any traffic (clients ping every 10 s) before a client is dropped.</summary>
+    private const int IdleTimeoutSeconds = 35;
+
+    /// <summary>The host's own entry, included in member lists so clients can see/DM the host.</summary>
+    public Member? HostMember { get; set; }
+
     public event Action<Member>?         ClientJoined;
     public event Action<string>?         ClientLeft;
     public event Action<NetworkMessage>? MessageReceived;
@@ -59,6 +65,7 @@ public class WebSocketServer : IDisposable
         }
 
         _ = Task.Run(AcceptLoop, _cts.Token);
+        _ = Task.Run(IdleSweepLoop, _cts.Token);
         await Task.CompletedTask;
     }
 
@@ -85,13 +92,18 @@ public class WebSocketServer : IDisposable
 
     private async Task HandleClientAsync(HttpListenerContext ctx)
     {
-        var wsCtx     = await ctx.AcceptWebSocketAsync(null);
-        var ws        = wsCtx.WebSocket;
-        var clientId  = Guid.NewGuid().ToString();
+        WebSocket ws;
+        try { ws = (await ctx.AcceptWebSocketAsync(null)).WebSocket; }
+        catch { try { ctx.Response.Abort(); } catch { } return; }
+
+        var buffer   = new byte[MaxMessageSize];
+        var clientId = Guid.NewGuid().ToString();
+        ConnectedClient? client = null;
+        var registered = false;
 
         try
         {
-            var regMsg = await ReceiveMessageAsync(ws, _cts.Token);
+            var regMsg = await ReceiveMessageAsync(ws, buffer, _cts.Token);
             if (regMsg == null || regMsg.Type != MessageType.Register)
             {
                 await ws.CloseAsync(WebSocketCloseStatus.PolicyViolation,
@@ -99,15 +111,35 @@ public class WebSocketServer : IDisposable
                 return;
             }
 
+            // Register payload: {"device": "...", "uid": "..."}. A stable uid lets a client keep
+            // its identity (and therefore its DM history) across reconnects.
+            string device = regMsg.Payload, uid = "";
+            try
+            {
+                var reg = JsonConvert.DeserializeObject<RegisterData>(regMsg.Payload);
+                if (reg != null) { device = reg.Device; uid = reg.Uid; }
+            }
+            catch { }
+            if (!string.IsNullOrWhiteSpace(uid) && uid != "host") clientId = uid;
+
             var member = new Member
             {
                 Id          = clientId,
-                DisplayName = regMsg.SenderName,
-                DeviceName  = regMsg.Payload
+                DisplayName = string.IsNullOrWhiteSpace(regMsg.SenderName) ? "Guest" : regMsg.SenderName,
+                DeviceName  = device
             };
 
-            var client = new ConnectedClient(clientId, ws, member);
+            client = new ConnectedClient(clientId, ws, member);
+
+            // Same identity reconnecting before the old socket timed out: replace it.
+            if (_clients.TryGetValue(clientId, out var stale))
+            {
+                _clients.TryRemove(clientId, out _);
+                try { stale.WebSocket.Abort(); } catch { }
+                ClientLeft?.Invoke(clientId);
+            }
             _clients[clientId] = client;
+            registered = true;
 
             LogService.Instance.Info("Server", $"Client registered: {member.DisplayName} ({clientId})");
 
@@ -120,16 +152,11 @@ public class WebSocketServer : IDisposable
                 Payload     = clientId
             });
 
-            var memberList = _clients.Values.Select(c => new
-            {
-                c.Member.Id, c.Member.DisplayName,
-                c.Member.DeviceName, c.Member.IsHost
-            });
             await SendToClientAsync(client, new NetworkMessage
             {
                 Type     = MessageType.MemberList,
                 SenderId = "host",
-                Payload  = JsonConvert.SerializeObject(memberList)
+                Payload  = JsonConvert.SerializeObject(SnapshotMembers())
             });
 
             await BroadcastAsync(new NetworkMessage
@@ -148,27 +175,67 @@ public class WebSocketServer : IDisposable
 
             while (ws.State == WebSocketState.Open && !_cts.IsCancellationRequested)
             {
-                var msg = await ReceiveMessageAsync(ws, _cts.Token);
+                var msg = await ReceiveMessageAsync(ws, buffer, _cts.Token);
                 if (msg == null) break;
+                client.LastSeen = DateTime.UtcNow;
                 msg.SenderId   = clientId;
                 msg.SenderName = member.DisplayName;
                 await RouteMessageAsync(msg);
-                MessageReceived?.Invoke(msg);
+                // The host only consumes what is addressed to it (or to everyone)
+                if (msg.Type != MessageType.Ping &&
+                    (string.IsNullOrEmpty(msg.RecipientId) || msg.RecipientId == "host"))
+                    MessageReceived?.Invoke(msg);
             }
         }
         catch (WebSocketException) { }
         catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Warn("Server", $"Client handler error: {ex.Message}");
+        }
         finally
         {
-            _clients.TryRemove(clientId, out _);
-            await BroadcastAsync(new NetworkMessage
+            // Only remove/announce if this socket is still the registered one for the id
+            if (registered && client != null &&
+                ((ICollection<KeyValuePair<string, ConnectedClient>>)_clients)
+                    .Remove(new KeyValuePair<string, ConnectedClient>(clientId, client)))
             {
-                Type     = MessageType.MemberLeft,
-                SenderId = clientId,
-                Payload  = clientId
-            });
-            ClientLeft?.Invoke(clientId);
+                await BroadcastAsync(new NetworkMessage
+                {
+                    Type     = MessageType.MemberLeft,
+                    SenderId = clientId,
+                    Payload  = clientId
+                });
+                ClientLeft?.Invoke(clientId);
+            }
             try { ws.Dispose(); } catch { }
+        }
+    }
+
+    private List<object> SnapshotMembers()
+    {
+        var list = new List<object>();
+        if (HostMember != null)
+            list.Add(new { HostMember.Id, HostMember.DisplayName, HostMember.DeviceName, IsHost = true });
+        foreach (var c in _clients.Values)
+            list.Add(new { c.Member.Id, c.Member.DisplayName, c.Member.DeviceName, c.Member.IsHost });
+        return list;
+    }
+
+    /// <summary>Drops clients that stopped talking (e.g. walked out of hotspot range).</summary>
+    private async Task IdleSweepLoop()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(10), _cts.Token); }
+            catch (OperationCanceledException) { return; }
+
+            var cutoff = DateTime.UtcNow.AddSeconds(-IdleTimeoutSeconds);
+            foreach (var c in _clients.Values.Where(c => c.LastSeen < cutoff).ToList())
+            {
+                LogService.Instance.Warn("Server", $"{c.Member.DisplayName} timed out — dropping");
+                try { c.WebSocket.Abort(); } catch { }
+            }
         }
     }
 
@@ -192,6 +259,8 @@ public class WebSocketServer : IDisposable
                 break;
 
             default:
+                if (msg.RecipientId == "host")
+                    break; // addressed to the host — consumed by the caller
                 if (!string.IsNullOrEmpty(msg.RecipientId))
                 {
                     if (_clients.TryGetValue(msg.RecipientId, out var target))
@@ -203,37 +272,51 @@ public class WebSocketServer : IDisposable
         }
     }
 
+    /// <summary>Delivers a host-originated message to its recipient (or everyone if none).</summary>
+    public async Task SendFromHostAsync(NetworkMessage msg)
+    {
+        msg.SenderId = "host";
+        if (string.IsNullOrEmpty(msg.RecipientId))
+            await BroadcastAsync(msg);
+        else if (_clients.TryGetValue(msg.RecipientId, out var target))
+            await SendToClientAsync(target, msg);
+    }
+
     public async Task BroadcastAsync(NetworkMessage msg, string? exclude = null)
     {
-        var json  = JsonConvert.SerializeObject(msg);
-        var bytes = Encoding.UTF8.GetBytes(json);
+        var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(msg));
         var tasks = _clients.Values
             .Where(c => c.Id != exclude && c.WebSocket.State == WebSocketState.Open)
-            .Select(c => SafeSendAsync(c.WebSocket, bytes));
+            .Select(c => SafeSendAsync(c, bytes));
         await Task.WhenAll(tasks);
     }
 
     public async Task SendToClientAsync(ConnectedClient client, NetworkMessage msg)
     {
-        var json  = JsonConvert.SerializeObject(msg);
-        var bytes = Encoding.UTF8.GetBytes(json);
-        await SafeSendAsync(client.WebSocket, bytes);
+        var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(msg));
+        await SafeSendAsync(client, bytes);
     }
 
-    private static async Task SafeSendAsync(WebSocket ws, byte[] bytes)
+    // A WebSocket allows only one outstanding SendAsync — serialise per client.
+    private static async Task SafeSendAsync(ConnectedClient client, byte[] bytes)
     {
         try
         {
-            await ws.SendAsync(new ArraySegment<byte>(bytes),
-                WebSocketMessageType.Text, true, CancellationToken.None);
+            await client.SendLock.WaitAsync();
+            try
+            {
+                if (client.WebSocket.State != WebSocketState.Open) return;
+                await client.WebSocket.SendAsync(new ArraySegment<byte>(bytes),
+                    WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+            finally { client.SendLock.Release(); }
         }
         catch { }
     }
 
     private static async Task<NetworkMessage?> ReceiveMessageAsync(
-        WebSocket ws, CancellationToken ct)
+        WebSocket ws, byte[] buffer, CancellationToken ct)
     {
-        var buffer = new byte[MaxMessageSize];
         var sb = new StringBuilder();
         WebSocketReceiveResult result;
         do
@@ -263,11 +346,15 @@ public class WebSocketServer : IDisposable
     }
 }
 
+public record RegisterData(string Device, string Uid);
+
 public class ConnectedClient
 {
     public string    Id        { get; }
     public WebSocket WebSocket { get; }
     public Member    Member    { get; }
+    public SemaphoreSlim SendLock { get; } = new(1, 1);
+    public DateTime  LastSeen  { get; set; } = DateTime.UtcNow;
     public ConnectedClient(string id, WebSocket ws, Member member)
     { Id = id; WebSocket = ws; Member = member; }
 }

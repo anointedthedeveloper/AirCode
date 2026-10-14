@@ -10,4 +10,8 @@ public class AppSettings
     public bool NotificationsEnabled { get; set; } = true;
     public bool FirstRun { get; set; } = true;
     public string LastNetworkName { get; set; } = "AirCode-Classroom";
+    public string LastNetworkPassword { get; set; } = "aircode123";
+    public bool UseHotspot { get; set; } = true;
+    /// <summary>Stable identity of this install — keeps DM history attached across reconnects.</summary>
+    public string ClientUid { get; set; } = Guid.NewGuid().ToString();
 }

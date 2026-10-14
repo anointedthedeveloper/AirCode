@@ -29,18 +29,53 @@
 
             <!-- Chat header -->
             <Border Grid.Row="0" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1"
-                    Padding="20,14" Background="{StaticResource SurfaceBrush}">
-                <TextBlock x:Name="ChatHeaderText" FontSize="15" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextPrimaryBrush}" Text="Classroom Chat"/>
+                    Padding="20,12" Background="{StaticResource SurfaceBrush}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock x:Name="ChatHeaderText" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" Text="Classroom Chat"/>
+                        <TextBlock x:Name="ChatSubText" FontSize="11.5" Margin="0,2,0,0"
+                                   Foreground="{StaticResource TextMutedBrush}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="Clear history" Style="{StaticResource GhostButton}"
+                            Padding="12,7" Click="ClearHistory_Click" VerticalAlignment="Center"/>
+                </Grid>
             </Border>
 
             <!-- Messages -->
+            <TextBlock Grid.Row="1" x:Name="EmptyText" Text="No messages yet — say hello 👋"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13"
+                       Foreground="{StaticResource TextMutedBrush}" IsHitTestVisible="False"/>
             <ScrollViewer Grid.Row="1" x:Name="MsgScroll" Style="{StaticResource MinimalScroll}"
                           Padding="20,12">
                 <ItemsControl x:Name="MessageList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,4">
+                            <Grid Margin="0,4" Opacity="0">
+                                <Grid.RenderTransform>
+                                    <TranslateTransform Y="14"/>
+                                </Grid.RenderTransform>
+                                <Grid.Triggers>
+                                    <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                                        <BeginStoryboard>
+                                            <Storyboard>
+                                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                                 To="1" Duration="0:0:0.25"/>
+                                                <DoubleAnimation
+                                                    Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.Y)"
+                                                    To="0" Duration="0:0:0.25">
+                                                    <DoubleAnimation.EasingFunction>
+                                                        <CubicEase EasingMode="EaseOut"/>
+                                                    </DoubleAnimation.EasingFunction>
+                                                </DoubleAnimation>
+                                            </Storyboard>
+                                        </BeginStoryboard>
+                                    </EventTrigger>
+                                </Grid.Triggers>
                                 <!-- Own messages (right-aligned) -->
                                 <Border HorizontalAlignment="Right" MaxWidth="460"
                                         Background="{StaticResource OwnMessageBrush}"
@@ -87,7 +122,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBox x:Name="MessageInput" Style="{StaticResource InputBox}"
-                             FontSize="13" Padding="12,10"
+                             FontSize="13" Padding="12,10" MaxLength="4000"
                              KeyDown="Input_KeyDown"
                              VerticalScrollBarVisibility="Auto"
                              AcceptsReturn="False"/>

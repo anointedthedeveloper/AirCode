@@ -10,7 +10,26 @@
                         BorderBrush="{StaticResource BorderBrush}"
                         BorderThickness="1" CornerRadius="8"
                         Padding="14,10" Margin="0,6,0,0"
-                        MinWidth="260" MaxWidth="340">
+                        MinWidth="260" MaxWidth="340" Opacity="0">
+                    <Border.RenderTransform>
+                        <TranslateTransform X="60"/>
+                    </Border.RenderTransform>
+                    <Border.Triggers>
+                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard>
+                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.22"/>
+                                    <DoubleAnimation
+                                        Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
+                                        To="0" Duration="0:0:0.28">
+                                        <DoubleAnimation.EasingFunction>
+                                            <CubicEase EasingMode="EaseOut"/>
+                                        </DoubleAnimation.EasingFunction>
+                                    </DoubleAnimation>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Border.Triggers>
                     <Border.Effect>
                         <DropShadowEffect Color="#000000" Opacity="0.12" BlurRadius="12" ShadowDepth="2"/>
                     </Border.Effect>

@@ -27,6 +27,30 @@
                     <TextBlock x:Name="HostIpText" FontSize="11.5" FontFamily="Consolas"
                                Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12"/>
 
+                    <!-- Hotspot credentials — shown while hosting so others know what to join -->
+                    <Border x:Name="HotspotPanel" Visibility="Collapsed"
+                            Background="{StaticResource BgBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="7" Padding="14,10" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock Text="JOIN THIS WI-FI ON YOUR OTHER DEVICES" Style="{StaticResource Label}" Margin="0,0,0,6"/>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Network:" FontSize="12" Width="70"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="HotspotSsidText" FontSize="13" FontWeight="SemiBold" FontFamily="Consolas"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                <TextBlock Text="Password:" FontSize="12" Width="70"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                                <TextBlock x:Name="HotspotPasswordText" FontSize="13" FontWeight="SemiBold" FontFamily="Consolas"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                            <TextBlock Text="Then open AirCode and tap Connect." FontSize="11.5" Margin="0,6,0,0"
+                                       Foreground="{StaticResource TextMutedBrush}"/>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Action buttons — wrap on small screens -->
                     <WrapPanel>
                         <Button x:Name="StartHostBtn" Style="{StaticResource PrimaryButton}"

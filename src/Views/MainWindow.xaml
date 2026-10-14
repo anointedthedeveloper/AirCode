@@ -109,6 +109,12 @@
                             <TextBlock Text="&#xE8BD;" FontFamily="Segoe MDL2 Assets"
                                        FontSize="14" Width="22" VerticalAlignment="Center"/>
                             <TextBlock Text="Chat" VerticalAlignment="Center"/>
+                            <Border Background="#EF4444" CornerRadius="9" MinWidth="18" Height="18"
+                                    Padding="5,0" Margin="8,0,0,0" VerticalAlignment="Center"
+                                    Visibility="{Binding TotalUnread, Converter={StaticResource CountToVis}}">
+                                <TextBlock Text="{Binding TotalUnread}" Foreground="White" FontSize="10"
+                                           FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
                         </StackPanel>
                     </Button>
                     <!-- Files -->
