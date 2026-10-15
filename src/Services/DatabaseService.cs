@@ -51,6 +51,19 @@ public class DatabaseService
                 CompletedAt INTEGER
             );";
         cmd.ExecuteNonQuery();
+
+        // Migration: remember which messages were ours so history renders correctly after restart
+        try
+        {
+            using var alter = conn.CreateCommand();
+            alter.CommandText = "ALTER TABLE ChatHistory ADD COLUMN IsOwn INTEGER NOT NULL DEFAULT 0";
+            alter.ExecuteNonQuery();
+        }
+        catch (SqliteException) { /* column already exists */ }
+
+        using var idx = conn.CreateCommand();
+        idx.CommandText = "CREATE INDEX IF NOT EXISTS IdxChatPeer ON ChatHistory (IsGroup, SenderId, RecipientId)";
+        idx.ExecuteNonQuery();
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -84,8 +97,8 @@ public class DatabaseService
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"INSERT OR IGNORE INTO ChatHistory
-            (Id, SenderId, SenderName, RecipientId, Content, Timestamp, IsGroup)
-            VALUES (@id, @sid, @sn, @rid, @c, @ts, @ig)";
+            (Id, SenderId, SenderName, RecipientId, Content, Timestamp, IsGroup, IsOwn)
+            VALUES (@id, @sid, @sn, @rid, @c, @ts, @ig, @own)";
         cmd.Parameters.AddWithValue("@id", msg.Id);
         cmd.Parameters.AddWithValue("@sid", msg.SenderId);
         cmd.Parameters.AddWithValue("@sn", msg.SenderName);
@@ -93,18 +106,57 @@ public class DatabaseService
         cmd.Parameters.AddWithValue("@c", msg.Content);
         cmd.Parameters.AddWithValue("@ts", new DateTimeOffset(msg.Timestamp).ToUnixTimeSeconds());
         cmd.Parameters.AddWithValue("@ig", msg.IsGroupMessage ? 1 : 0);
+        cmd.Parameters.AddWithValue("@own", msg.IsOwn ? 1 : 0);
         cmd.ExecuteNonQuery();
     }
 
+    private const string ChatCols = "Id, SenderId, SenderName, RecipientId, Content, Timestamp, IsOwn";
+
     public List<ChatMessage> LoadGroupChatHistory(int limit = 200)
     {
-        var list = new List<ChatMessage>();
         using var conn = new SqliteConnection(_connStr);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT * FROM ChatHistory WHERE IsGroup=1
-            ORDER BY Timestamp DESC LIMIT @l";
+        cmd.CommandText = $@"SELECT {ChatCols} FROM ChatHistory WHERE IsGroup=1
+            ORDER BY Timestamp DESC, rowid DESC LIMIT @l";
         cmd.Parameters.AddWithValue("@l", limit);
+        return ReadChat(cmd);
+    }
+
+    /// <summary>Direct-message history with one peer (messages we sent to them or they sent to us).</summary>
+    public List<ChatMessage> LoadDirectHistory(string peerId, int limit = 200)
+    {
+        using var conn = new SqliteConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $@"SELECT {ChatCols} FROM ChatHistory
+            WHERE IsGroup=0 AND ((IsOwn=1 AND RecipientId=@p) OR (IsOwn=0 AND SenderId=@p))
+            ORDER BY Timestamp DESC, rowid DESC LIMIT @l";
+        cmd.Parameters.AddWithValue("@p", peerId);
+        cmd.Parameters.AddWithValue("@l", limit);
+        return ReadChat(cmd);
+    }
+
+    /// <summary>Deletes group history (peerId null) or the DM history with one peer.</summary>
+    public void ClearChat(string? peerId)
+    {
+        using var conn = new SqliteConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        if (peerId == null)
+            cmd.CommandText = "DELETE FROM ChatHistory WHERE IsGroup=1";
+        else
+        {
+            cmd.CommandText = @"DELETE FROM ChatHistory WHERE IsGroup=0 AND
+                ((IsOwn=1 AND RecipientId=@p) OR (IsOwn=0 AND SenderId=@p))";
+            cmd.Parameters.AddWithValue("@p", peerId);
+        }
+        cmd.ExecuteNonQuery();
+    }
+
+    private static List<ChatMessage> ReadChat(SqliteCommand cmd)
+    {
+        var list = new List<ChatMessage>();
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
@@ -115,7 +167,8 @@ public class DatabaseService
                 SenderName = reader.GetString(2),
                 RecipientId = reader.GetString(3),
                 Content = reader.GetString(4),
-                Timestamp = DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(5)).LocalDateTime
+                Timestamp = DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(5)).LocalDateTime,
+                IsOwn = reader.GetInt64(6) == 1
             });
         }
         list.Reverse();

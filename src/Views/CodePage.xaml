@@ -8,6 +8,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -65,5 +66,37 @@
             <Button Content="Share Code →" Style="{StaticResource PrimaryButton}"
                     Padding="24,10" Click="Share_Click"/>
         </StackPanel>
+
+        <!-- Received snippets inbox -->
+        <Border Grid.Row="4" x:Name="InboxPanel" Visibility="Collapsed" Margin="0,16,0,0"
+                Style="{StaticResource Card}" MaxHeight="210">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="RECEIVED SNIPPETS" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+                <ScrollViewer Style="{StaticResource MinimalScroll}">
+                    <ItemsControl x:Name="InboxList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Header}" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <TextBlock Text="{Binding Preview}" FontSize="11.5" FontFamily="Consolas"
+                                                   TextTrimming="CharacterEllipsis" MaxHeight="18"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Open" Tag="{Binding}"
+                                            Style="{StaticResource SecondaryButton}" Padding="12,6"
+                                            Margin="12,0,0,0" Click="OpenSnippet_Click"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
     </Grid>
 </UserControl>

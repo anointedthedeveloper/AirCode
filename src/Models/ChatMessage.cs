@@ -10,5 +10,7 @@ public class ChatMessage
     public DateTime Timestamp { get; set; } = DateTime.Now;
     public bool IsOwn { get; set; }
     public bool IsGroupMessage => string.IsNullOrEmpty(RecipientId);
-    public string TimeDisplay => Timestamp.ToString("HH:mm");
+    public string TimeDisplay => Timestamp.Date == DateTime.Today
+        ? Timestamp.ToString("HH:mm")
+        : Timestamp.ToString("dd MMM HH:mm");
 }

@@ -20,7 +20,9 @@ public partial class HomePage : UserControl
         vm.PropertyChanged += (s, e) =>
         {
             if (e.PropertyName is nameof(MainViewModel.ConnectionState)
-                                or nameof(MainViewModel.IsConnected))
+                                or nameof(MainViewModel.IsConnected)
+                                or nameof(MainViewModel.HotspotActive)
+                                or nameof(MainViewModel.HotspotPassword))
                 UpdateButtons();
         };
         UpdateButtons();
@@ -31,13 +33,23 @@ public partial class HomePage : UserControl
         Dispatcher.InvokeAsync(() =>
         {
             bool connected = _vm?.IsConnected ?? false;
-            StartHostBtn.Visibility  = connected ? Visibility.Collapsed : Visibility.Visible;
-            ConnectBtn.Visibility    = connected ? Visibility.Collapsed : Visibility.Visible;
-            DisconnectBtn.Visibility = connected ? Visibility.Visible   : Visibility.Collapsed;
-            if (connected) ManualPanel.Visibility = Visibility.Collapsed;
+            // While (re)connecting, offer Disconnect so the user can cancel
+            bool busy = connected || _vm?.ConnectionState == ConnectionState.Connecting;
+            StartHostBtn.Visibility  = busy ? Visibility.Collapsed : Visibility.Visible;
+            ConnectBtn.Visibility    = busy ? Visibility.Collapsed : Visibility.Visible;
+            DisconnectBtn.Visibility = busy ? Visibility.Visible   : Visibility.Collapsed;
+            if (busy) ManualPanel.Visibility = Visibility.Collapsed;
             HostIpText.Text = _vm?.HostIp != null && _vm.IsConnected
                 ? $"Host IP: {_vm.HostIp}"
                 : "";
+
+            bool hotspot = connected && (_vm?.IsHost ?? false) && (_vm?.HotspotActive ?? false);
+            HotspotPanel.Visibility = hotspot ? Visibility.Visible : Visibility.Collapsed;
+            if (hotspot)
+            {
+                HotspotSsidText.Text = _vm!.HotspotSsid;
+                HotspotPasswordText.Text = _vm.HotspotPassword;
+            }
         });
     }
 
@@ -47,18 +59,25 @@ public partial class HomePage : UserControl
     {
         if (_vm == null) return;
 
-        var dlg = new HostSetupDialog { Owner = _win };
+        var dlg = new HostSetupDialog(_vm.Settings) { Owner = _win };
         if (dlg.ShowDialog() != true) return;
 
+        _vm.Settings.UseHotspot = dlg.UseHotspot;
+        if (dlg.UseHotspot)
+        {
+            _vm.Settings.LastNetworkName = dlg.Ssid;
+            _vm.Settings.LastNetworkPassword = dlg.Password;
+        }
+        _vm.SaveSettings();
+
         SetBusy(true);
-        var (ok, msg) = await _vm.StartHostAsync();
+        var (ok, msg) = await _vm.StartHostAsync(dlg.UseHotspot, dlg.Ssid, dlg.Password);
         SetBusy(false);
 
         if (!ok)
             ShowInlineError(msg);
         else
-            NotificationService.Instance.Show("Hosting",
-                $"Running on {_vm.HostIp}", NotificationKind.Success);
+            NotificationService.Instance.Show("Hosting", msg.Split('\n')[0], NotificationKind.Success);
     }
 
     // ── Auto Connect ──────────────────────────────────────────────────────────
@@ -141,8 +160,12 @@ public partial class HomePage : UserControl
     /// <summary>Guess the most likely host IP based on the client's own subnet.</summary>
     private static string GuessHostIp()
     {
+        // On a hotspot the gateway is the host PC
+        var gateways = HotspotService.GetGatewayAddresses();
+        if (gateways.Count > 0) return gateways[0];
+
         var adapters = HotspotService.GetAllAdapters();
-        if (adapters.Count == 0) return "192.168.1.1";
+        if (adapters.Count == 0) return "192.168.137.1";
 
         // Take the first adapter IP and replace last octet with .1
         var ip = adapters[0].ip;

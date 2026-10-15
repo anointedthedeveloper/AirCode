@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 using AirCode.Models;
 using AirCode.Services;
 using AirCode.ViewModels;
@@ -49,7 +51,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnFileOfferReceived(FileTransfer transfer, string senderIp, int tcpPort, string _)
+    private void OnFileOfferReceived(FileTransfer transfer, string senderIp, int tcpPort, string senderId)
     {
         Dispatcher.InvokeAsync(async () =>
         {
@@ -57,7 +59,7 @@ public partial class MainWindow : Window
             if (dlg.ShowDialog() == true)
                 await VM.AcceptFileAsync(transfer, senderIp, tcpPort);
             else
-                VM.DeclineFile(transfer);
+                await VM.DeclineFileAsync(transfer);
         });
     }
 
@@ -76,6 +78,7 @@ public partial class MainWindow : Window
 
     private void ShowPage(AppPage page, Button navBtn)
     {
+        var previous = VM.CurrentPage;
         VM.CurrentPage = page;
         SetActiveNav(navBtn);
 
@@ -87,6 +90,29 @@ public partial class MainWindow : Window
         TransfersPage.Visibility = page == AppPage.Transfers ? Visibility.Visible : Visibility.Collapsed;
         LogPage.Visibility       = page == AppPage.Logs      ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility  = page == AppPage.Settings  ? Visibility.Visible : Visibility.Collapsed;
+
+        if (page != previous)
+        {
+            UIElement shown = page switch
+            {
+                AppPage.Home => HomePage, AppPage.Members => MembersPage, AppPage.Chat => ChatPage,
+                AppPage.Files => FilesPage, AppPage.Code => CodePage, AppPage.Transfers => TransfersPage,
+                AppPage.Logs => LogPage, _ => SettingsPage
+            };
+            FadeIn(shown);
+        }
+    }
+
+    /// <summary>Soft fade + slide-up when switching pages.</summary>
+    private static void FadeIn(UIElement el)
+    {
+        var slide = new TranslateTransform(0, 14);
+        el.RenderTransform = slide;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        el.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(240)));
+        slide.BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(14, 0, TimeSpan.FromMilliseconds(240)) { EasingFunction = ease });
     }
 
     internal void Nav_Home(object s, RoutedEventArgs e)      => ShowPage(AppPage.Home,      NavHome);
@@ -98,9 +124,9 @@ public partial class MainWindow : Window
     internal void Nav_Logs(object s, RoutedEventArgs e)      => ShowPage(AppPage.Logs,       NavLogs);
     internal void Nav_Settings(object s, RoutedEventArgs e)  => ShowPage(AppPage.Settings,   NavSettings);
 
-    protected override async void OnClosed(EventArgs e)
+    protected override void OnClosed(EventArgs e)
     {
-        await VM.DisconnectAsync();
+        VM.Shutdown();
         base.OnClosed(e);
     }
 }

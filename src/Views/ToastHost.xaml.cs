@@ -41,6 +41,7 @@ public partial class ToastHost : UserControl
         };
 
         _toasts.Add(toast);
+        while (_toasts.Count > 4) _toasts.RemoveAt(0);   // never pile up
 
         // Auto-dismiss after 3.5s
         var timer = new System.Windows.Threading.DispatcherTimer

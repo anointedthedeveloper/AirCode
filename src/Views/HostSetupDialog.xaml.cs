@@ -1,48 +1,49 @@
 using System.Windows;
-using AirCode.Services;
+using AirCode.Models;
 
 namespace AirCode.Views;
 
 public partial class HostSetupDialog : Window
 {
-    public string DetectedIp { get; private set; } = "";
+    public bool   UseHotspot { get; private set; } = true;
+    public string Ssid       { get; private set; } = "";
+    public string Password   { get; private set; } = "";
 
-    public HostSetupDialog()
+    public HostSetupDialog(AppSettings settings)
     {
         InitializeComponent();
-        Loaded += (_, _) => DetectNetwork();
+        SsidBox.Text = settings.LastNetworkName;
+        PasswordBox.Text = settings.LastNetworkPassword;
+        UseHotspotBox.IsChecked = settings.UseHotspot;
+        Hotspot_Toggled(null, null!);
     }
 
-    private void DetectNetwork()
+    private void Hotspot_Toggled(object? s, RoutedEventArgs e)
     {
-        var adapters = HotspotService.GetAllAdapters();
-        var best     = HotspotService.GetBestLocalIp();
-
-        DetectedIp = best;
-
-        if (string.IsNullOrEmpty(best))
-        {
-            IpText.Text          = "Not connected";
-            AdapterText.Text     = "Connect to a Wi-Fi network and reopen this dialog.";
-            NoNetworkText.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            IpText.Text = best;
-            var adapter = adapters.FirstOrDefault();
-            AdapterText.Text = adapter.name ?? "Network adapter detected";
-            NoNetworkText.Visibility = Visibility.Collapsed;
-        }
+        // Fires during InitializeComponent before the fields exist
+        if (HotspotFields == null || NoHotspotText == null) return;
+        var on = UseHotspotBox.IsChecked == true;
+        HotspotFields.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        NoHotspotText.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void Start_Click(object s, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(DetectedIp))
+        UseHotspot = UseHotspotBox.IsChecked == true;
+        Ssid = SsidBox.Text.Trim();
+        Password = PasswordBox.Text;
+
+        if (UseHotspot)
         {
-            MessageBox.Show(
-                "No network detected.\n\nConnect this PC to a Wi-Fi network (phone hotspot, Windows hotspot, or router) then try again.",
-                "No Network", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            string? err = null;
+            if (Ssid.Length == 0) err = "Enter a network name.";
+            else if (Password.Length < 8 || Password.Length > 63) err = "The password must be 8–63 characters.";
+            if (err != null)
+            {
+                ErrorText.Text = err;
+                ErrorText.Visibility = Visibility.Visible;
+                return;
+            }
         }
         DialogResult = true;
     }

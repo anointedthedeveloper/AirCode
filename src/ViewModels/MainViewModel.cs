@@ -22,6 +22,9 @@ public class MainViewModel : INotifyPropertyChanged
     private readonly FileTransferService _fileTransfer = new();
     private readonly HotspotService _hotspot = new();
     private CancellationTokenSource? _reconnectCts;
+    private CancellationTokenSource? _connectCts;
+    private string? _lastHostIp;
+    private int _lastHostPort = WebSocketServer.WsPort;
 
     // ── State ─────────────────────────────────────────────────────────────────
     private ConnectionState _connectionState = ConnectionState.Disconnected;
@@ -34,13 +37,26 @@ public class MainViewModel : INotifyPropertyChanged
     public ObservableCollection<ChatMessage> GroupMessages { get; } = new();
     public ObservableCollection<FileTransfer> Transfers { get; } = new();
     public ObservableCollection<ActivityItem> RecentActivity { get; } = new();
+    public ObservableCollection<ReceivedSnippet> ReceivedSnippets { get; } = new();
 
     // Direct message threads keyed by peer ID
     public Dictionary<string, ObservableCollection<ChatMessage>> DirectThreads { get; } = new();
 
-    public string MyId => IsHost ? "host" : (_client?.MyId ?? "");
+    public string MyId => IsHost ? "host" : (_client?.MyId ?? _settings.ClientUid);
     public bool IsHost => _connectionState == ConnectionState.ConnectedAsHost;
     public string? HostIp { get; private set; }
+
+    // Hotspot details shown on the Home page so classmates know what to join
+    public bool   HotspotActive   { get; private set; }
+    public string HotspotSsid     { get; private set; } = "";
+    public string HotspotPassword { get; private set; } = "";
+
+    // Chat state: which thread is on screen (null = group chat) and unread counters
+    public string? ActiveChatPeer { get; set; }
+    private readonly Dictionary<string, int> _unread = new();
+    public int TotalUnread => _unread.Values.Sum();
+    public int UnreadFor(string? peerId) => _unread.TryGetValue(peerId ?? "", out var n) ? n : 0;
+    public event Action? UnreadChanged;
     public int OnlineMemberCount => Members.Count(m => m.IsOnline);
 
     // ── Properties ────────────────────────────────────────────────────────────
@@ -112,27 +128,67 @@ public class MainViewModel : INotifyPropertyChanged
 
         _fileTransfer.TransferCompleted += OnTransferCompleted;
         _fileTransfer.TransferFailed += OnTransferFailed;
-        _fileTransfer.TransferProgress += t =>
-            App.Current.Dispatcher.InvokeAsync(() =>
-                NotificationService.Instance.Show("Transfer", $"{t.FileName} {t.Progress:F0}%", NotificationKind.Info));
+
+        // Make sure the install's identity is persisted (it is generated on first run)
+        Db.SaveSettings(_settings);
 
         // Load history
         foreach (var msg in Db.LoadGroupChatHistory())
             GroupMessages.Add(msg);
         foreach (var t in Db.LoadTransferHistory())
+        {
+            // A transfer that was in flight when the app closed can never finish
+            if (t.IsActive) { t.Status = TransferStatus.Cancelled; Db.SaveTransfer(t); }
             Transfers.Add(t);
+        }
+    }
+
+    /// <summary>Synchronous teardown for app exit (stops servers and the hotspot we started).</summary>
+    public void Shutdown()
+    {
+        try { _reconnectCts?.Cancel(); _connectCts?.Cancel(); } catch { }
+        try { _discovery.Stop(); } catch { }
+        try { _server?.Stop(); _server?.Dispose(); } catch { }
+        try { _client?.Dispose(); } catch { }
+        try { Task.Run(() => _hotspot.StopAsync()).Wait(TimeSpan.FromSeconds(5)); } catch { }
     }
 
     // ── Host Mode ─────────────────────────────────────────────────────────────
 
-    public async Task<(bool success, string message)> StartHostAsync()
+    /// <summary>
+    /// Starts hosting. With <paramref name="useHotspot"/> the PC shares its Wi-Fi as a Windows
+    /// hotspot (other devices join that hotspot); otherwise it hosts on the network it is already on.
+    /// </summary>
+    public async Task<(bool success, string message)> StartHostAsync(
+        bool useHotspot = true, string ssid = "AirCode", string password = "aircode123")
     {
         var log = LogService.Instance;
         log.Info("Host", "StartHostAsync called");
+        if (IsConnected || ConnectionState == ConnectionState.Connecting)
+            return (false, "Already connected — disconnect first.");
         ConnectionState = ConnectionState.Connecting;
 
-        // Get this machine's IP on the current network (no hotspot creation)
-        var ip = HotspotService.GetBestLocalIp();
+        string ip = "";
+        string note = "";
+        HotspotActive = false; HotspotSsid = ""; HotspotPassword = "";
+
+        if (useHotspot)
+        {
+            var hs = await _hotspot.StartAsync(ssid, password);
+            if (hs.Result is HotspotResult.Success or HotspotResult.AlreadyOn)
+            {
+                ip = string.IsNullOrEmpty(hs.Ip) ? "192.168.137.1" : hs.Ip;
+                HotspotActive = true; HotspotSsid = hs.Ssid; HotspotPassword = hs.Passphrase;
+            }
+            else
+            {
+                log.Warn("Host", $"Hotspot unavailable: {hs.Message}");
+                note = $"\n\nHotspot could not be started: {hs.Message}\nHosting on the current network instead.";
+            }
+        }
+
+        if (string.IsNullOrEmpty(ip))
+            ip = HotspotService.GetBestLocalIp();
 
         if (string.IsNullOrEmpty(ip))
         {
@@ -144,10 +200,19 @@ public class MainViewModel : INotifyPropertyChanged
         HostIp = ip;
         log.Info("Host", $"Host IP: {ip}");
 
-        // Register URL ACL (best-effort — works when running as admin)
+        // Let other devices through the Windows firewall, and make sure the listener may bind.
+        await HotspotService.EnsureFirewallRuleAsync();
         await TryReserveUrlAsync();
 
-        _server = new WebSocketServer();
+        var selfMember = new Member
+        {
+            Id          = "host",
+            DisplayName = _settings.DisplayName,
+            DeviceName  = Environment.MachineName,
+            IsHost      = true
+        };
+
+        _server = new WebSocketServer { HostMember = selfMember };
         _server.ClientJoined    += OnClientJoined;
         _server.ClientLeft      += OnClientLeft;
         _server.MessageReceived += OnServerMessageReceived;
@@ -160,6 +225,9 @@ public class MainViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             log.Error("Host", $"Server failed: {ex.Message}");
+            _server.Dispose(); _server = null;
+            await _hotspot.StopAsync();
+            HotspotActive = false;
             ConnectionState = ConnectionState.Disconnected;
             return (false, $"Could not start server: {ex.Message}");
         }
@@ -167,37 +235,27 @@ public class MainViewModel : INotifyPropertyChanged
         _discovery.StartHostBeacon(WebSocketServer.WsPort);
         log.Info("Host", "UDP discovery beacon started");
 
-        var selfMember = new Member
-        {
-            Id          = "host",
-            DisplayName = _settings.DisplayName,
-            DeviceName  = Environment.MachineName,
-            IsHost      = true
-        };
-        App.Current.Dispatcher.Invoke(() => Members.Add(selfMember));
+        App.Current.Dispatcher.Invoke(() => { Members.Clear(); Members.Add(selfMember); });
 
         ConnectionState = ConnectionState.ConnectedAsHost;
         AddActivity($"Hosting on {ip}");
         OnPropertyChanged(nameof(MyId));
+        OnPropertyChanged(nameof(HotspotActive));
+        OnPropertyChanged(nameof(HotspotSsid));
+        OnPropertyChanged(nameof(HotspotPassword));
 
-        return (true, $"AirCode running on {ip}\nClients auto-discover via UDP — no IP entry needed.");
+        var msg = HotspotActive
+            ? $"Hotspot \"{HotspotSsid}\" is on ({ip}).\nDevices join it, then open AirCode and tap Connect."
+            : $"AirCode running on {ip}\nClients auto-discover via UDP — no IP entry needed.";
+        return (true, msg + note);
     }
 
     private static async Task TryReserveUrlAsync()
     {
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo(
-                "netsh",
-                $"http add urlacl url=http://+:{WebSocketServer.WsPort}/ws/ user=Everyone")
-            {
-                RedirectStandardOutput = true,
-                UseShellExecute        = false,
-                CreateNoWindow         = true
-            };
-            using var p = System.Diagnostics.Process.Start(psi)!;
-            await p.WaitForExitAsync();
-            LogService.Instance.Debug("Host", $"URL ACL reservation exit: {p.ExitCode}");
+            await HotspotService.RunNetshAsync(
+                $"http add urlacl url=http://+:{WebSocketServer.WsPort}/ user=Everyone");
         }
         catch (Exception ex)
         {
@@ -210,66 +268,111 @@ public class MainViewModel : INotifyPropertyChanged
     public async Task ConnectAsync(string? manualIp = null)
     {
         var log = LogService.Instance;
+        if (IsConnected) return;
         log.Info("Client", manualIp != null
             ? $"Manual connect to {manualIp}"
             : "Auto-discovering host…");
+
+        _reconnectCts?.Cancel();
+        _connectCts?.Cancel();
+        var cts = _connectCts = new CancellationTokenSource();
+        var token = cts.Token;
         ConnectionState = ConnectionState.Connecting;
 
-        string? ip   = manualIp;
-        int     port = WebSocketServer.WsPort;
+        _ = HotspotService.EnsureFirewallRuleAsync();   // so file transfers from peers can reach us
 
-        if (ip == null)
+        bool ok = false;
+        try
         {
-            // Send multiple probe rounds — phone hotspots sometimes drop first broadcast
-            for (int attempt = 1; attempt <= 6; attempt++)
+            if (manualIp != null)
             {
-                log.Debug("Client", $"Discovery attempt {attempt}/6…");
-                var found = await _discovery.DiscoverHostAsync(TimeSpan.FromSeconds(2));
-                if (found.HasValue)
+                ok = await ConnectCoreAsync(manualIp.Trim(), WebSocketServer.WsPort, 8);
+            }
+            else
+            {
+                // Several probe rounds — Wi-Fi drops the first broadcast surprisingly often
+                for (int attempt = 1; attempt <= 5 && !ok && !token.IsCancellationRequested; attempt++)
                 {
-                    ip   = found.Value.ip;
-                    port = found.Value.port;
-                    log.Success("Client", $"Host found via UDP: {ip}:{port}");
-                    break;
+                    log.Debug("Client", $"Discovery attempt {attempt}/5…");
+                    var found = await _discovery.DiscoverHostAsync(TimeSpan.FromSeconds(2));
+                    if (found.HasValue)
+                        ok = await ConnectCoreAsync(found.Value.ip, found.Value.port, 8);
+                }
+
+                // Broadcast blocked (some hotspots/routers)? On a hotspot the gateway is the host.
+                if (!ok && !token.IsCancellationRequested)
+                {
+                    var guesses = HotspotService.GetGatewayAddresses().ToList();
+                    if (!guesses.Contains("192.168.137.1")) guesses.Add("192.168.137.1");
+                    foreach (var g in guesses)
+                    {
+                        if (token.IsCancellationRequested) break;
+                        log.Debug("Client", $"Trying gateway {g}…");
+                        if (ok = await ConnectCoreAsync(g, WebSocketServer.WsPort, 3)) break;
+                    }
                 }
             }
         }
+        catch (Exception ex) { log.Error("Client", $"Connect error: {ex.Message}"); }
 
-        if (ip == null)
+        if (!ok || token.IsCancellationRequested)
         {
-            log.Warn("Client", "Auto-discovery failed — no host found on this network.");
-            ConnectionState = ConnectionState.Disconnected;
-            return;
+            if (ok) await DisconnectAsync();    // user cancelled while we were connecting
+            else if (ConnectionState == ConnectionState.Connecting && !token.IsCancellationRequested)
+            {
+                log.Warn("Client", "No AirCode host found on this network.");
+                ConnectionState = ConnectionState.Disconnected;
+            }
+        }
+    }
+
+    /// <summary>One connection attempt. On success the client is installed and state flips to connected.</summary>
+    private async Task<bool> ConnectCoreAsync(string ip, int port, int timeoutSecs)
+    {
+        if (!System.Net.IPAddress.TryParse(ip, out _))
+        {
+            LogService.Instance.Warn("Client", $"'{ip}' is not a valid IP address.");
+            return false;
         }
 
-        _client = new WebSocketClient();
-        _client.MessageReceived += OnClientMessageReceived;
-        _client.Disconnected    += OnClientDisconnected;
+        // Handlers go on first: the host sends the member list the moment we register
+        var client = new WebSocketClient();
+        client.MessageReceived += OnClientMessageReceived;
+        client.Disconnected    += () => OnClientDisconnected(client);
 
-        var ok = await _client.ConnectAsync(ip, port,
-            _settings.DisplayName, Environment.MachineName);
+        var ok = await client.ConnectAsync(ip, port, _settings.DisplayName,
+            Environment.MachineName, _settings.ClientUid, timeoutSecs);
+        if (!ok) { client.Dispose(); return false; }
 
-        if (!ok)
-        {
-            log.Error("Client", $"WebSocket connect to {ip}:{port} failed.");
-            ConnectionState = ConnectionState.Disconnected;
-            return;
-        }
+        var old = _client;
+        _client = client;
+        old?.Dispose();
 
         HostIp = ip;
+        _lastHostIp = ip;
+        _lastHostPort = port;
         ConnectionState = ConnectionState.ConnectedAsClient;
         OnPropertyChanged(nameof(MyId));
-        log.Success("Client", $"Connected to {ip}");
+        LogService.Instance.Success("Client", $"Connected to {ip}");
         AddActivity("Connected to AirCode network");
+        return true;
     }
 
     public async Task DisconnectAsync()
     {
         LogService.Instance.Info("Host", "Disconnecting…");
         _reconnectCts?.Cancel();
+        _connectCts?.Cancel();
         _discovery.Stop();
         if (_server != null) { _server.Stop(); _server.Dispose(); _server = null; }
-        if (_client != null) { await _client.DisconnectAsync(); _client.Dispose(); _client = null; }
+        if (_client != null)
+        {
+            var c = _client; _client = null;
+            await c.DisconnectAsync(); c.Dispose();
+        }
+        await _hotspot.StopAsync();
+        HotspotActive = false; HotspotSsid = ""; HotspotPassword = "";
+        OnPropertyChanged(nameof(HotspotActive));
         App.Current.Dispatcher.Invoke(() => Members.Clear());
         ConnectionState = ConnectionState.Disconnected;
         LogService.Instance.Info("Host", "Disconnected.");
@@ -277,9 +380,11 @@ public class MainViewModel : INotifyPropertyChanged
 
     // ── Reconnect ─────────────────────────────────────────────────────────────
 
-    private async void OnClientDisconnected()
+    private void OnClientDisconnected(WebSocketClient who)
     {
+        if (!ReferenceEquals(who, _client)) return;                 // stale client
         if (ConnectionState == ConnectionState.Disconnected) return;
+
         App.Current.Dispatcher.Invoke(() =>
         {
             ConnectionState = ConnectionState.Connecting;
@@ -287,19 +392,33 @@ public class MainViewModel : INotifyPropertyChanged
             NotificationService.Instance.Show("AirCode", "Connection lost — reconnecting…", NotificationKind.Warning);
         });
 
-        _reconnectCts = new CancellationTokenSource();
-        var token = _reconnectCts.Token;
+        _reconnectCts?.Cancel();
+        var cts = _reconnectCts = new CancellationTokenSource();
+        _ = Task.Run(() => ReconnectLoopAsync(cts.Token));
+    }
 
-        await Task.Delay(2000, token);
-        while (!token.IsCancellationRequested)
+    private async Task ReconnectLoopAsync(CancellationToken token)
+    {
+        try
         {
-            var found = await _discovery.DiscoverHostAsync(TimeSpan.FromSeconds(3));
-            if (found.HasValue)
+            await Task.Delay(1500, token);
+            while (!token.IsCancellationRequested)
             {
-                await App.Current.Dispatcher.InvokeAsync(() => ConnectAsync(found.Value.ip));
-                break;
+                // Same host as before first (fast path), then full discovery (host may have a new IP)
+                if (_lastHostIp != null && await ConnectCoreAsync(_lastHostIp, _lastHostPort, 4)) break;
+
+                var found = await _discovery.DiscoverHostAsync(TimeSpan.FromSeconds(3));
+                if (found.HasValue && await ConnectCoreAsync(found.Value.ip, found.Value.port, 6)) break;
+
+                await Task.Delay(2000, token);
             }
-            await Task.Delay(3000, token);
+            if (!token.IsCancellationRequested)
+                NotificationService.Instance.Show("AirCode", "Reconnected", NotificationKind.Success);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            LogService.Instance.Error("Client", $"Reconnect error: {ex.Message}");
         }
     }
 
@@ -337,8 +456,9 @@ public class MainViewModel : INotifyPropertyChanged
             Content = text,
             IsOwn = true
         };
-        EnsureThread(recipientId);
-        App.Current.Dispatcher.Invoke(() => DirectThreads[recipientId].Add(msg));
+        var thread = GetThread(recipientId);
+        App.Current.Dispatcher.Invoke(() => thread.Add(msg));
+        Db.SaveChatMessage(msg);
 
         var net = new NetworkMessage
         {
@@ -352,6 +472,7 @@ public class MainViewModel : INotifyPropertyChanged
 
     public async Task SendCodeAsync(string recipientId, string language, string code)
     {
+        if (!IsConnected) return;
         var net = new NetworkMessage
         {
             Type = MessageType.CodeShare,
@@ -363,8 +484,21 @@ public class MainViewModel : INotifyPropertyChanged
         AddActivity($"You shared a {language} snippet");
     }
 
+    /// <summary>The address peers should use to reach this PC for direct file transfers.</summary>
+    private string GetMyAddress()
+    {
+        if (IsHost && !string.IsNullOrEmpty(HostIp)) return HostIp;
+        if (!string.IsNullOrEmpty(HostIp))
+        {
+            var local = HotspotService.GetLocalIpToward(HostIp);   // adapter on the host's network
+            if (local != null) return local;
+        }
+        return HotspotService.GetBestLocalIp();
+    }
+
     public async Task<FileTransfer?> OfferFileAsync(Member target, string filePath)
     {
+        if (!IsConnected) return null;
         var fi = new System.IO.FileInfo(filePath);
         if (!fi.Exists) return null;
         if (fi.Length > 2L * 1024 * 1024 * 1024)
@@ -399,7 +533,7 @@ public class MainViewModel : INotifyPropertyChanged
                 fileName = fi.Name,
                 fileSize = fi.Length,
                 tcpPort,
-                senderIp = HostIp ?? HotspotService.GetBestLocalIp()
+                senderIp = GetMyAddress()
             })
         };
         await SendMessageAsync(net);
@@ -470,8 +604,11 @@ public class MainViewModel : INotifyPropertyChanged
                 GroupMessages.Add(chatMsg);
                 Db.SaveChatMessage(chatMsg);
                 AddActivity($"{msg.SenderName}: {Truncate(msg.Payload, 40)}");
-                if (CurrentPage != AppPage.Chat)
+                if (!IsViewingChat(null))
+                {
+                    AddUnread(null);
                     NotificationService.Instance.Show(msg.SenderName, msg.Payload, NotificationKind.Info);
+                }
                 break;
 
             case MessageType.DirectMessage:
@@ -484,15 +621,26 @@ public class MainViewModel : INotifyPropertyChanged
                     Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(msg.Timestamp).LocalDateTime,
                     IsOwn = false
                 };
-                EnsureThread(msg.SenderId);
-                DirectThreads[msg.SenderId].Add(dm);
-                NotificationService.Instance.Show($"DM from {msg.SenderName}", msg.Payload, NotificationKind.Info);
+                GetThread(msg.SenderId).Add(dm);
+                Db.SaveChatMessage(dm);
+                if (!IsViewingChat(msg.SenderId))
+                {
+                    AddUnread(msg.SenderId);
+                    NotificationService.Instance.Show($"DM from {msg.SenderName}", msg.Payload, NotificationKind.Info);
+                }
                 break;
 
             case MessageType.CodeShare:
                 var codeData = JsonConvert.DeserializeObject<CodeShareData>(msg.Payload);
                 if (codeData != null)
                 {
+                    ReceivedSnippets.Insert(0, new ReceivedSnippet
+                    {
+                        SenderName = msg.SenderName,
+                        Language   = codeData.Language,
+                        Code       = codeData.Code,
+                        Received   = DateTime.Now
+                    });
                     AddActivity($"{msg.SenderName} shared a {codeData.Language} snippet");
                     NotificationService.Instance.Show($"Code from {msg.SenderName}", $"{codeData.Language} snippet received", NotificationKind.Info);
                     CodeReceived?.Invoke(msg.SenderName, codeData.Language, codeData.Code);
@@ -514,7 +662,19 @@ public class MainViewModel : INotifyPropertyChanged
                         Status = TransferStatus.Pending
                     };
                     Transfers.Insert(0, incoming);
-                    FileOfferReceived?.Invoke(incoming, msg.SenderId, offer.TcpPort, offer.SenderIp);
+                    FileOfferReceived?.Invoke(incoming, offer.SenderIp, offer.TcpPort, msg.SenderId);
+                }
+                break;
+
+            case MessageType.FileDecline:
+                var declined = Transfers.FirstOrDefault(t => t.Id == msg.Payload && t.Direction == TransferDirection.Sending);
+                if (declined != null)
+                {
+                    declined.Status = TransferStatus.Declined;
+                    _fileTransfer.CancelSend(declined.Id);
+                    Db.SaveTransfer(declined);
+                    NotificationService.Instance.Show("File declined",
+                        $"{msg.SenderName} declined {declined.FileName}", NotificationKind.Warning);
                 }
                 break;
 
@@ -528,7 +688,7 @@ public class MainViewModel : INotifyPropertyChanged
     // ── Events for the UI ─────────────────────────────────────────────────────
 
     public event Action<string, string, string>? CodeReceived; // senderName, lang, code
-    public event Action<FileTransfer, string, int, string>? FileOfferReceived; // transfer, senderIp, tcpPort, senderIp
+    public event Action<FileTransfer, string, int, string>? FileOfferReceived; // transfer, senderIp, tcpPort, senderId
 
     // ── File Accept / Decline ─────────────────────────────────────────────────
 
@@ -541,10 +701,18 @@ public class MainViewModel : INotifyPropertyChanged
         Db.SaveTransfer(transfer);
     }
 
-    public void DeclineFile(FileTransfer transfer)
+    public async Task DeclineFileAsync(FileTransfer transfer)
     {
         transfer.Status = TransferStatus.Declined;
         Db.SaveTransfer(transfer);
+        // Tell the sender so it stops waiting
+        await SendMessageAsync(new NetworkMessage
+        {
+            Type = MessageType.FileDecline,
+            SenderName = _settings.DisplayName,
+            RecipientId = transfer.PeerId,
+            Payload = transfer.Id
+        });
     }
 
     // ── Host event handlers ───────────────────────────────────────────────────
@@ -608,6 +776,13 @@ public class MainViewModel : INotifyPropertyChanged
         _settings.DisplayName = newName;
         Db.SaveSettings(_settings);
 
+        if (IsHost)
+        {
+            var me = Members.FirstOrDefault(m => m.Id == "host");
+            if (me != null) me.DisplayName = newName;
+            if (_server?.HostMember != null) _server.HostMember.DisplayName = newName;
+        }
+
         if (IsConnected)
         {
             await SendMessageAsync(new NetworkMessage
@@ -631,24 +806,46 @@ public class MainViewModel : INotifyPropertyChanged
     {
         if (IsHost && _server != null)
         {
-            // On host: broadcast or route directly
-            if (!string.IsNullOrEmpty(msg.RecipientId))
-            {
-                msg.SenderId = "host";
-                msg.SenderName = _settings.DisplayName;
-                await _server.BroadcastAsync(msg, exclude: null);
-            }
-            else
-                await _server.BroadcastAsync(msg, exclude: null);
+            msg.SenderName = _settings.DisplayName;
+            await _server.SendFromHostAsync(msg);   // routes to one recipient, or everyone
         }
         else if (_client != null)
             await _client.SendAsync(msg);
     }
 
-    private void EnsureThread(string peerId)
+    /// <summary>Returns the DM thread for a peer, loading its saved history the first time.</summary>
+    public ObservableCollection<ChatMessage> GetThread(string peerId)
     {
-        if (!DirectThreads.ContainsKey(peerId))
-            DirectThreads[peerId] = new ObservableCollection<ChatMessage>();
+        if (!DirectThreads.TryGetValue(peerId, out var thread))
+            DirectThreads[peerId] = thread = new ObservableCollection<ChatMessage>(Db.LoadDirectHistory(peerId));
+        return thread;
+    }
+
+    private bool IsViewingChat(string? peerId) =>
+        CurrentPage == AppPage.Chat && ActiveChatPeer == peerId && Application.Current.MainWindow?.IsActive == true;
+
+    private void AddUnread(string? peerId)
+    {
+        var key = peerId ?? "";
+        _unread[key] = UnreadFor(peerId) + 1;
+        OnPropertyChanged(nameof(TotalUnread));
+        UnreadChanged?.Invoke();
+    }
+
+    public void MarkRead(string? peerId)
+    {
+        if (_unread.Remove(peerId ?? ""))
+        {
+            OnPropertyChanged(nameof(TotalUnread));
+            UnreadChanged?.Invoke();
+        }
+    }
+
+    public void ClearChatHistory(string? peerId)
+    {
+        Db.ClearChat(peerId);
+        if (peerId == null) GroupMessages.Clear();
+        else GetThread(peerId).Clear();
     }
 
     private string GetUniqueSavePath(string fileName)
@@ -685,6 +882,16 @@ public class MainViewModel : INotifyPropertyChanged
     private record MemberDto(string Id, string DisplayName, string DeviceName, bool IsHost);
     private record CodeShareData(string Language, string Code);
     private record FileOfferData(string TransferId, string FileName, long FileSize, int TcpPort, string SenderIp);
+}
+
+public class ReceivedSnippet
+{
+    public string SenderName { get; set; } = "";
+    public string Language { get; set; } = "";
+    public string Code { get; set; } = "";
+    public DateTime Received { get; set; }
+    public string Header => $"{SenderName} · {Language} · {Received:HH:mm}";
+    public string Preview => Code.Length <= 120 ? Code : Code[..120] + "…";
 }
 
 public class ActivityItem

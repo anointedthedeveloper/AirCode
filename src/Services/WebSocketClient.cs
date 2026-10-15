@@ -8,8 +8,14 @@ namespace AirCode.Services;
 /// <summary>WebSocket client that connects to the AirCode host.</summary>
 public class WebSocketClient : IDisposable
 {
+    private const int  PingSeconds    = 10;
+    private const int  DeadAfterSecs  = 30;   // no traffic (not even a Pong) for this long = link is dead
+
     private ClientWebSocket? _ws;
     private CancellationTokenSource _cts = new();
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private DateTime _lastRx = DateTime.UtcNow;
+    private int _disconnectedRaised;
     private bool _disposed;
 
     public string? MyId { get; private set; }
@@ -20,7 +26,7 @@ public class WebSocketClient : IDisposable
     public event Action<NetworkMessage>? MessageReceived;
 
     public async Task<bool> ConnectAsync(string ip, int port,
-        string displayName, string deviceName)
+        string displayName, string deviceName, string uid, int timeoutSecs = 8)
     {
         var log = LogService.Instance;
         log.Info("Client", $"Connecting to ws://{ip}:{port}/");
@@ -28,8 +34,10 @@ public class WebSocketClient : IDisposable
         {
             _ws  = new ClientWebSocket();
             _cts = new CancellationTokenSource();
+            _lastRx = DateTime.UtcNow;
+            _disconnectedRaised = 0;
 
-            using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSecs));
             await _ws.ConnectAsync(new Uri($"ws://{ip}:{port}/"), cts2.Token);
 
             log.Success("Client", $"WebSocket connected to {ip}:{port}");
@@ -38,40 +46,47 @@ public class WebSocketClient : IDisposable
             {
                 Type       = MessageType.Register,
                 SenderName = displayName,
-                Payload    = deviceName
+                Payload    = JsonConvert.SerializeObject(new RegisterData(deviceName, uid))
             });
 
-            _ = Task.Run(ReceiveLoop, _cts.Token);
+            var token = _cts.Token;
+            _ = Task.Run(() => ReceiveLoop(token));
+            _ = Task.Run(() => HeartbeatLoop(token));
             Connected?.Invoke();
             return true;
         }
         catch (Exception ex)
         {
             log.Error("Client", $"Connect failed: {ex.Message}");
+            try { _ws?.Dispose(); } catch { }
+            _ws = null;
             return false;
         }
     }
 
-    private async Task ReceiveLoop()
+    private async Task ReceiveLoop(CancellationToken token)
     {
         var buffer = new byte[256 * 1024];
+        var sb = new StringBuilder();
 
-        while (_ws?.State == WebSocketState.Open && !_cts.IsCancellationRequested)
+        while (_ws?.State == WebSocketState.Open && !token.IsCancellationRequested)
         {
             try
             {
-                var sb = new StringBuilder();
+                sb.Clear();
                 WebSocketReceiveResult result;
                 do
                 {
-                    result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
+                    result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), token);
                     if (result.MessageType == WebSocketMessageType.Close)
-                    { Disconnected?.Invoke(); return; }
+                    { RaiseDisconnected(); return; }
                     sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
                 } while (!result.EndOfMessage);
 
+                _lastRx = DateTime.UtcNow;
+
                 var msg = JsonConvert.DeserializeObject<NetworkMessage>(sb.ToString());
-                if (msg == null) continue;
+                if (msg == null || msg.Type == MessageType.Pong) continue;
 
                 if (msg.Type == MessageType.RegisterAck)
                     MyId = msg.Payload;
@@ -83,30 +98,64 @@ public class WebSocketClient : IDisposable
             catch { }
         }
 
-        Disconnected?.Invoke();
+        RaiseDisconnected();
+    }
+
+    /// <summary>Pings the host and declares the link dead if nothing comes back (host left, out of range…).</summary>
+    private async Task HeartbeatLoop(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try { await Task.Delay(TimeSpan.FromSeconds(PingSeconds), token); }
+            catch (OperationCanceledException) { return; }
+
+            if ((DateTime.UtcNow - _lastRx).TotalSeconds > DeadAfterSecs)
+            {
+                LogService.Instance.Warn("Client", "Host stopped responding — connection lost.");
+                try { _ws?.Abort(); } catch { }
+                return; // ReceiveLoop notices the abort and raises Disconnected
+            }
+            await SendAsync(new NetworkMessage { Type = MessageType.Ping });
+        }
+    }
+
+    private void RaiseDisconnected()
+    {
+        if (Interlocked.Exchange(ref _disconnectedRaised, 1) == 0)
+            Disconnected?.Invoke();
     }
 
     public async Task SendAsync(NetworkMessage msg)
     {
-        if (_ws?.State != WebSocketState.Open) return;
+        var ws = _ws;
+        if (ws?.State != WebSocketState.Open) return;
         try
         {
             msg.SenderId = MyId ?? "";
-            var json  = JsonConvert.SerializeObject(msg);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            await _ws.SendAsync(new ArraySegment<byte>(bytes),
-                WebSocketMessageType.Text, true, CancellationToken.None);
+            var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(msg));
+            await _sendLock.WaitAsync();
+            try
+            {
+                if (ws.State == WebSocketState.Open)
+                    await ws.SendAsync(new ArraySegment<byte>(bytes),
+                        WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+            finally { _sendLock.Release(); }
         }
         catch { }
     }
 
+    /// <summary>Closes the connection without raising <see cref="Disconnected"/>.</summary>
     public async Task DisconnectAsync()
     {
+        Interlocked.Exchange(ref _disconnectedRaised, 1); // deliberate: don't trigger auto-reconnect
         try
         {
             if (_ws?.State == WebSocketState.Open)
-                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure,
-                    "Bye", CancellationToken.None);
+            {
+                using var t = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Bye", t.Token);
+            }
         }
         catch { }
         _cts.Cancel();
@@ -116,6 +165,7 @@ public class WebSocketClient : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        Interlocked.Exchange(ref _disconnectedRaised, 1);
         _cts.Cancel();
         _ws?.Dispose();
     }

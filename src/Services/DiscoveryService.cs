@@ -81,15 +81,18 @@ public class DiscoveryService : IDisposable
 
             var probe = Encoding.UTF8.GetBytes(Magic);
 
-            // Broadcast on all interfaces
-            await udp.SendAsync(probe, probe.Length,
-                new IPEndPoint(IPAddress.Broadcast, Port));
+            // 1) limited broadcast  2) directed broadcast of every adapter's subnet
+            // 3) common hotspot/router subnets  4) the default gateway — on a hotspot that IS the host
+            var targets = new List<IPAddress> { IPAddress.Broadcast };
+            targets.AddRange(HotspotService.GetBroadcastAddresses());
+            targets.AddRange(GetCommonBroadcasts());
+            foreach (var gw in HotspotService.GetGatewayAddresses())
+                targets.Add(IPAddress.Parse(gw));
+            targets.Add(IPAddress.Parse("192.168.137.1")); // Windows hotspot host
 
-            // Also try subnet-directed broadcasts for common subnets
-            foreach (var subnet in GetCommonBroadcasts())
+            foreach (var t in targets.Distinct())
             {
-                try { await udp.SendAsync(probe, probe.Length,
-                    new IPEndPoint(subnet, Port)); }
+                try { await udp.SendAsync(probe, probe.Length, new IPEndPoint(t, Port)); }
                 catch { }
             }
 
